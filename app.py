@@ -746,5 +746,18 @@ def icon(size):
     return send_from_directory(PUBLIC_DIR, f"icon-{size}.png")
 
 
+# ---------------------------------------------------------------- extras
+# Charts, trade history and AI signal live in extras.py. If it fails to load,
+# the bot keeps working exactly as before.
+try:
+    import sys as _sys
+
+    import extras
+
+    extras.register(_sys.modules[__name__])
+except Exception as _err:
+    print("extras not loaded:", _err)
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
