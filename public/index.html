@@ -175,6 +175,8 @@ button{font-family:inherit}
 .log div{animation:in .4s var(--ease);padding:2px 0;border-bottom:1px solid var(--line)}
 .rs{display:block;width:100%;margin-top:12px;border:1px solid var(--line2);background:none;color:var(--mute);border-radius:99px;padding:11px;font:600 13px 'Manrope';cursor:pointer;transition:.25s}
 .rs:hover{color:var(--c5);background:var(--c2)}
+#log:empty:before{content:"Journal is empty";display:block;font-size:13px;color:var(--mute);padding:20px;text-align:center}
+#log:empty~.rs{display:none}
 .empty{font-size:13px;color:var(--mute);padding:20px;text-align:center}
 ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:var(--c3);border-radius:9px}
 
@@ -335,7 +337,7 @@ body{overscroll-behavior-y:none}
     <button class="rs" id="rs">Reset session</button>
    </div>
    <div id="p-tx" class="hid"><div class="txl" id="tb"></div></div>
-   <div id="p-jr" class="hid"><div class="log" id="log"></div></div>
+   <div id="p-jr" class="hid"><div class="log" id="log"></div><button class="rs" id="cj" type="button">Clear journal</button></div>
   </div>
  </div>
 </div>
@@ -596,6 +598,7 @@ setTimeout(place,300);
 /* app starts hidden, so measure again once it becomes visible */
 try{new MutationObserver(place).observe(app,{attributes:true,attributeFilter:['class']})}catch(e){}
 })();
+$('cj').onclick=function(){$('log').innerHTML=''};
 $('rs').onclick=function(){stopBot();S.trades=[];last=null;S.sess=0;S.nTr=0;BOT.streak=0;ui();log('Session counters reset. Your Deriv balance is unchanged.')};
 
 /* ------------------------------------------------------------------ placing trades */
