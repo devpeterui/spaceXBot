@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: spacex-bulk-trader
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # One worker on purpose: login sessions are kept in memory.
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 60
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: BROKER
+        value: deriv
+      - key: TIMEZONE
+        value: Africa/Nairobi
+      - key: MAX_BULK
+        value: "5"
+      - key: ALLOW_LIVE
+        value: "false"
+      # Secrets: Render asks you to type these in the dashboard, they never live in Git.
+      - key: ACCESS_CODE
+        sync: false
+      - key: DERIV_TOKEN
+        sync: false
+      - key: DERIV_APP_ID
+        sync: false
