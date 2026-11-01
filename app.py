@@ -746,6 +746,18 @@ def icon(size):
     return send_from_directory(PUBLIC_DIR, f"icon-{size}.png")
 
 
+@app.get("/favicon.svg")
+def favicon_svg():
+    resp = send_from_directory(PUBLIC_DIR, "favicon.svg", mimetype="image/svg+xml")
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+@app.get("/favicon.ico")
+def favicon_ico():
+    return send_from_directory(PUBLIC_DIR, "icon-192.png", mimetype="image/png")
+
+
 # ---------------------------------------------------------------- extras
 # Charts, trade history and AI signal live in extras.py. If it fails to load,
 # the bot keeps working exactly as before.
