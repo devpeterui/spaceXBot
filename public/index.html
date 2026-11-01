@@ -177,6 +177,8 @@ button{font-family:inherit}
 .rs:hover{color:var(--c5);background:var(--c2)}
 #log:empty:before{content:"Journal is empty";display:block;font-size:13px;color:var(--mute);padding:20px;text-align:center}
 #log:empty~.rs{display:none}
+.sh4{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--mute);font-weight:600;margin:18px 2px 8px}
+#tabs button{font-size:12px;padding:10px 2px}
 .empty{font-size:13px;color:var(--mute);padding:20px;text-align:center}
 ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:var(--c3);border-radius:9px}
 
@@ -310,7 +312,9 @@ body{overscroll-behavior-y:none}
    <div class="g" data-pane="trade bot">
     <div class="ch"><h2>Limits<small>Apply to manual trades and the bot</small></h2></div>
     <div class="inp"><div><label for="lT">Take profit</label><input id="lT" type="number" value="20" min="1"></div><div><label for="lL">Stop loss</label><input id="lL" type="number" value="10" min="1"></div><div><label for="lN">Max trades</label><input id="lN" type="number" value="100" min="1"></div></div>
+    <div class="inp" style="grid-template-columns:1fr"><div><label for="lP">Daily loss cap (% of balance)</label><input id="lP" type="number" value="5" min="0.5" max="100" step="0.5"></div></div>
     <div class="lm"><span id="lm1">Session +0.00 USD</span><span id="lm2">0 / 100 trades</span></div><div class="lw" id="lw"></div>
+    <div class="lm" style="margin:4px 2px 0"><span id="lc1"></span><span id="lc2"></span></div>
    </div>
    <div class="g" data-pane="bot">
     <div class="ath">
@@ -326,7 +330,7 @@ body{overscroll-behavior-y:none}
   </div>
   <div class="g" data-pane="res">
    <div class="ch"><h2>Results<small>Session performance</small></h2></div>
-   <div class="tabs" id="tabs"><button data-t="sum" class="on">Summary</button><button data-t="tx">Transactions</button><button data-t="jr">Journal</button></div>
+   <div class="tabs" id="tabs"><button data-t="sum" class="on">Summary</button><button data-t="tx">Transactions</button><button data-t="jr">Journal</button><button data-t="st">Stats</button></div>
    <div id="p-sum">
     <div class="cl" id="cl"><small>No contracts yet</small><b>0.00 USD</b></div>
     <div class="sg">
@@ -337,6 +341,7 @@ body{overscroll-behavior-y:none}
     <button class="rs" id="rs">Reset session</button>
    </div>
    <div id="p-tx" class="hid"><div class="txl" id="tb"></div></div>
+   <div id="p-st" class="hid"><div id="stx"></div></div>
    <div id="p-jr" class="hid"><div class="log" id="log"></div><button class="rs" id="cj" type="button">Clear journal</button></div>
   </div>
  </div>
@@ -388,6 +393,7 @@ var PUB='wss://api.derivws.com/trading/v1/options/ws/public';
 var S={token:'',demo:true,cur:'USD',bal:0,maxStake:1,maxBulk:5,MK:[],SEL:null,CI:0,BR:5,
   trades:[],pend:[],sess:0,nTr:0,sending:false,pickSeq:0};
 var BOT={on:false,busy:false,pick:null,m:null,ci:0,br:0,streak:0,since:0,wait:0};
+var DAY={k:'',base:0,pl:0,lock:false};
 var RING=2*Math.PI*42,R=[],SG=null,last=null;
 var view='dig',cds=[],cur={o:0,h:0,l:0,c:0,i:0,n:0},cidx=0,mk=[],TPC=4,VIS=40,price=0;
 var CT=[{a:'Even',b:'Odd'},{a:'Rise',b:'Fall'},{a:'Over',b:'Under',br:1},{a:'Matches',b:'Differs',br:1}];
@@ -551,7 +557,23 @@ function scan1(){var m=S.SEL;if(!m||!m.ok)return;SG=sig(m,S.CI,S.BR);var c=CT[S.
  $('sgs').textContent=SG.go?(c[SG.s]+(c.br?' '+(SG.br!=null?SG.br:S.BR):'')).toUpperCase():'WAIT';$('sgn').textContent=Math.round(SG.e);$('sgb').style.width=SG.e+'%';$('sgt').textContent=SG.t;
  var on=!$('scp').classList.contains('hid');$('bE').classList.toggle('sug',on&&SG.go&&SG.s==='a');$('bO').classList.toggle('sug',on&&SG.go&&SG.s==='b')}
 function flash(w,id){var e=$(id||'lx');e.textContent=w;clearTimeout(flash['t'+(id||'lx')]);flash['t'+(id||'lx')]=setTimeout(function(){e.textContent=''},6000)}
-function lim(){if(S.sess>=num('lT',50))return 'Take profit reached';if(S.sess<=-num('lL',50))return 'Stop loss reached';return ''}
+/* daily loss cap: saved on this device, locks trading until tomorrow once reached */
+function today(){var d=new Date();return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate()}
+function dayKey(){return 'sx_day_'+(S.demo?'demo':'live')}
+function daySave(){try{localStorage.setItem(dayKey(),JSON.stringify(DAY))}catch(e){}}
+function dayLoad(){var k=today(),o=null;try{o=JSON.parse(localStorage.getItem(dayKey())||'null')}catch(e){}
+ if(o&&o.k===k&&isFinite(o.base)&&isFinite(o.pl))DAY={k:k,base:+o.base,pl:+o.pl,lock:!!o.lock};else DAY={k:k,base:S.bal,pl:0,lock:false};daySave()}
+function dayCap(){return Math.max(0,DAY.base)*Math.min(100,Math.max(.1,num('lP',5)))/100}
+function capLeft(){return DAY.base>0?dayCap()+DAY.pl:Infinity}
+function dayAdd(pl){DAY.pl+=pl;if(DAY.base>0&&DAY.pl<=-dayCap()+1e-9)DAY.lock=true;daySave()}
+function dayChk(){if(DAY.k!==today())dayLoad();if(DAY.base>0&&(DAY.lock||DAY.pl<=-dayCap()+1e-9))return 'Daily loss cap reached. Trading is locked until tomorrow';return ''}
+function pendRisk(){return S.pend.reduce(function(a,p){return a+(p.stake||0)},0)}
+function capUI(){var a=$('lc1'),b=$('lc2');if(!a)return;
+ if(!(DAY.base>0)){a.textContent='Daily cap starts after login';b.textContent='';b.className='';return}
+ var c=dayCap(),used=Math.max(0,-DAY.pl),lk=DAY.lock||used>=c-1e-9;
+ a.textContent='Daily cap: '+f(used)+' / '+f(c)+' '+S.cur+' used';
+ b.textContent=lk?'Locked until tomorrow':(num('sk',.5)>DAY.base*.01+1e-9?'Stake is above 1% of balance':'');b.className=lk?'dn':''}
+function lim(){var dc=dayChk();if(dc)return dc;if(S.sess>=num('lT',50))return 'Take profit reached';if(S.sess<=-num('lL',50))return 'Stop loss reached';return ''}
 function money1(){$('bal').textContent=money(S.bal)+' '+S.cur;$('tag').textContent=S.demo?'DEMO':'LIVE';$('tag').style.background=S.demo?'':'#7a2b2b'}
 function ui(){
  var s=0,p=0,w=0,pl=0;S.trades.forEach(function(t){s+=t.stake;p+=t.payout;pl+=t.pl;if(t.won)w++});
@@ -564,7 +586,24 @@ function ui(){
  $('tb').innerHTML=wait+(S.trades.length?S.trades.slice(0,30).map(function(t){return '<div class="tx '+(t.won?'w':'l')+'"><div class="t">'+esc(t.label)+'<small style="display:block;font-weight:500;color:var(--mute);font-size:10px">'+esc(t.mn)+'</small></div><div>'+esc(fmt(t.entry,t.dec))+'<br>'+esc(fmt(t.exit,t.dec))+'</div><div class="p"><small>'+f(t.stake)+' '+esc(S.cur)+'</small><b class="'+(t.pl>=0?'up':'dn')+'">'+(t.pl>=0?'+':'')+f(t.pl)+' '+esc(S.cur)+'</b></div></div>'}).join(''):(wait?'':'<div class="empty">No transactions yet.</div>'));
  $('lm1').textContent='Session '+(S.sess>=0?'+':'')+f(S.sess)+' '+S.cur;$('lm2').textContent=S.nTr+' / '+num('lN',100)+' trades';
  $('lw').textContent=lim()||(S.nTr>=num('lN',100)?'Max trades reached':'');
- bars()}
+ capUI();statsUI();bars()}
+
+/* ------------------------------------------------------------------ stats (real results of this session) */
+function statsUI(){var el=$('stx');if(!el)return;var T=S.trades,n=T.length;
+ if(!n){el.innerHTML='<div class="empty">No finished trades yet. Stats appear after your first result.</div>';return}
+ var w=0,pl=0,be=0;T.forEach(function(t){if(t.won)w++;pl+=t.pl;be+=t.be});be/=n;
+ var wr=w/n*100,band=Math.sqrt(be/100*(1-be/100)/n)*196,v;
+ if(n<30)v='Too few trades to say anything yet. You need 100 or more before a win rate means much.';
+ else if(wr<be-band)v='Your win rate is below break-even by more than luck explains. At this rate you lose money.';
+ else if(wr>be+band)v='Your win rate is above break-even beyond normal luck so far. Keep the stake small and keep checking.';
+ else v='Your win rate is inside the luck range. This result cannot be told apart from chance.';
+ function grp(key){var g={};T.forEach(function(t){var k=key(t),o=g[k]||(g[k]={k:k,n:0,w:0,pl:0});o.n++;if(t.won)o.w++;o.pl+=t.pl});return Object.keys(g).map(function(k){return g[k]}).sort(function(a,b){return b.n-a.n}).slice(0,6)}
+ function rows(a){return '<div class="txl">'+a.map(function(o){return '<div class="tx '+(o.pl>=0?'w':'l')+'"><div class="t">'+esc(o.k)+'<small style="display:block;font-weight:500;color:var(--mute);font-size:10px">'+o.n+' trade'+(o.n>1?'s':'')+'</small></div><div>'+Math.round(o.w/o.n*100)+'%<br><small style="color:var(--mute);font-size:10px">win rate</small></div><div class="p"><b class="'+(o.pl>=0?'up':'dn')+'">'+(o.pl>=0?'+':'')+f(o.pl)+' '+esc(S.cur)+'</b></div></div>'}).join('')+'</div>'}
+ el.innerHTML='<div class="sg"><div><small>Trades</small><b>'+n+'</b></div><div><small>Win rate</small><b>'+wr.toFixed(1)+'%</b></div><div><small>Break-even</small><b>'+be.toFixed(1)+'%</b></div></div>'
+  +'<div class="lm" style="margin-top:12px"><span>Luck range '+(be-band).toFixed(1)+'% to '+(be+band).toFixed(1)+'%</span><span class="'+(pl>=0?'up':'dn')+'">Net '+(pl>=0?'+':'')+f(pl)+' '+esc(S.cur)+'</span></div>'
+  +'<div class="fine" style="margin-top:6px;padding-top:12px">'+esc(v)+'</div>'
+  +'<div class="sh4">By market</div>'+rows(grp(function(t){return t.mn}))
+  +'<div class="sh4">By contract</div>'+rows(grp(function(t){return t.label}))}
 
 /* ------------------------------------------------------------------ controls */
 function paintBd(){each($('bd').children,function(b,i){b.classList.toggle('on',i===S.BR)});var br=!!CT[S.CI].br;R.forEach(function(r,i){r.w.classList.toggle('sel',br&&i===S.BR);r.w.setAttribute('data-l',S.CI===2?'OVER / UNDER '+S.BR:'MATCH '+S.BR)})}
@@ -572,9 +611,10 @@ R.forEach(function(r,i){r.w.onclick=function(){if(!CT[S.CI].br){S.CI=2;each($('c
 (function(){for(var i=0;i<10;i++){var b=document.createElement('button');b.textContent=i;b.onclick=(function(i){return function(){S.BR=i;paintBd();bars();scan1()}})(i);$('bd').appendChild(b)}paintBd()})();
 each($('ct').children,function(b,i){b.onclick=function(){S.CI=i;each($('ct').children,function(z){z.classList.toggle('on',z===b)});$('bd').classList.toggle('hid',!CT[i].br);paintBd();bars();scan1()}});
 ['sk','nb'].forEach(function(id){$(id).oninput=bars});
-['lT','lL','lN'].forEach(function(id){$(id).oninput=ui});
+['lT','lL','lN','lP'].forEach(function(id){$(id).oninput=ui});
+$('sk').addEventListener('input',capUI);
 $('scn').onclick=function(){var o=$('scp').classList.toggle('hid');$('scn').classList.toggle('on',!o);if(o){$('bE').classList.remove('sug');$('bO').classList.remove('sug')}else scan1()};
-each(document.querySelectorAll('#tabs button'),function(b){b.onclick=function(){each(document.querySelectorAll('#tabs button'),function(x){x.classList.toggle('on',x===b)});['sum','tx','jr'].forEach(function(k){$('p-'+k).classList.toggle('hid',k!==b.getAttribute('data-t'))})}});
+each(document.querySelectorAll('#tabs button'),function(b){b.onclick=function(){each(document.querySelectorAll('#tabs button'),function(x){x.classList.toggle('on',x===b)});['sum','tx','jr','st'].forEach(function(k){$('p-'+k).classList.toggle('hid',k!==b.getAttribute('data-t'))})}});
 /* main section tabs (layout only; does not touch trading logic) */
 (function(){var mt=$('mt'),ind=$('mti'),app=$('app'),btns=mt.querySelectorAll('button'),cur='trade',desk=window.matchMedia('(min-width:900px)'),first=true;
 function place(){var b=mt.querySelector('button.on');if(!b||!b.offsetWidth)return;ind.style.width=b.offsetWidth+'px';ind.style.transform='translateX('+b.offsetLeft+'px)'}
@@ -605,7 +645,8 @@ $('rs').onclick=function(){stopBot();S.trades=[];last=null;S.sess=0;S.nTr=0;BOT.
 function place(m,ci,s,br,stake,n,tks,src){
   var out=function(ok,status,msg){return{ok:ok,status:status||0,msg:msg||''}};
   var w=lim();if(!w&&S.nTr+n>num('lN',100))w='Max trades reached';
-  if(w){log(w+'. Reset the session to continue.');flash(w);return Promise.resolve(out(false,0,w))}
+  if(!w&&DAY.base>0){var risk=pendRisk()+stake*n;if(risk>capLeft()+1e-9)w='This order risks '+f(risk)+' '+S.cur+' but only '+f(Math.max(0,capLeft()))+' is left in your daily loss cap'}
+  if(w){log(w+(/cap/i.test(w)?'.':'. Reset the session to continue.'));flash(w);return Promise.resolve(out(false,0,w))}
   if(!(m&&m.ok)){flash('Wait for live ticks first.');return Promise.resolve(out(false,0,'no ticks'))}
   if(S.sending)return Promise.resolve(out(false,0,'busy'));
   if(src==='Manual'&&!S.demo&&!confirm('LIVE ACCOUNT: '+lbl(ci,s,br)+' x'+n+' on '+m.name+', stake '+f(stake)+' each?'))return Promise.resolve(out(false,0,'cancelled'));
@@ -635,7 +676,7 @@ $('sgu').onclick=function(){if(!SG)return;if(SG.br!=null){S.BR=SG.br;paintBd();b
 var polled=false;
 function settle(p,x){
   var win=x.state==='won',pl=(x.profit!=null&&isFinite(x.profit))?x.profit:(win?p.stake*(mult(p.ci,p.s,p.br)-1):-p.stake),pay=win?(x.payout!=null&&isFinite(x.payout)?x.payout:p.stake+pl):0;
-  S.sess+=pl;
+  S.sess+=pl;dayAdd(pl);
   var tr={mn:p.mn,label:lbl(p.ci,p.s,p.br),entry:x.entry!=null?x.entry:p.entry,exit:x.exit,dec:p.m.dec,stake:p.stake,pl:pl,payout:pay,won:win,d:x.digit,be:mult(p.ci,p.s,p.br)?100/mult(p.ci,p.s,p.br):0};
   S.trades.unshift(tr);last=tr;
   if(p.m===S.SEL)mk.push({i:cur.i,p:price,k:'out',won:win,pl:pl});
@@ -711,6 +752,7 @@ function autoStep(m){
   if(!g.go){if(Date.now()-(BOT.wl||0)>30000){BOT.wl=Date.now();log('Waiting · '+m.name+': signal '+Math.round(g.e)+' (needs '+minSig()+'+ and uneven digits).')}return}
   if(stake>S.bal){stopBot('not enough balance for the next stake.');return}
   if(stake>S.maxStake){stopBot('next stake '+f(stake)+' is above the server limit MAX_STAKE '+S.maxStake+'.');return}
+  if(DAY.base>0&&pendRisk()+stake>capLeft()+1e-9){stopBot('next stake would risk more than your daily loss cap.');return}
   if(stake>num('lL',50)+S.sess){stopBot('next stake '+f(stake)+' would break your stop loss.');return}
   var br=BOT.ci===3?(g.br!=null?g.br:BOT.br):BOT.br;
   BOT.wait=Date.now()+4000;BOT.since++;
@@ -753,7 +795,7 @@ function loadMarkets(){
     buildPicker()})}
 function enter(account){
   $('login').classList.add('hid');$('app').classList.remove('hid');$('tok').value='';$('lerr').textContent='';
-  S.demo=!!account.demo;S.bal=Number(account.balance)||0;S.cur=account.currency||'USD';money1();ui();
+  S.demo=!!account.demo;S.bal=Number(account.balance)||0;S.cur=account.currency||'USD';money1();dayLoad();ui();
   wsOpen();
   api('/bulk/config').then(function(r){if(r.d.status==='success'){S.maxStake=Number(r.d.max_stake)||S.maxStake;S.maxBulk=r.d.max_bulk||S.maxBulk;$('nb').max=S.maxBulk;
     if(num('sk',.5)>S.maxStake)$('sk').value=S.maxStake;if(num('aS',.5)>S.maxStake)$('aS').value=S.maxStake}});
