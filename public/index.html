@@ -327,6 +327,11 @@ body{overscroll-behavior-y:none}
     <div class="inp" style="grid-template-columns:repeat(2,1fr)"><div><label for="aG">Min signal (0-100)</label><input id="aG" type="number" value="75" min="50" max="100"></div><div><label for="aX">Stop after losses in a row</label><input id="aX" type="number" value="3" min="1" max="10"></div></div>
     <div class="fine">The bot only trades when a market's digits are provably uneven (chi-square test) and the signal clears your minimum, otherwise it waits. It follows a proven bias, never a "due" streak. It stops at your take profit, stop loss, loss streak or max trades. Take profit must be at least your stop loss. No setup is guaranteed: each win pays about 95% of the stake, so a market with no real bias loses slowly. Martingale stays off at x1.</div>
    </div>
+   <div class="g" data-pane="bot">
+    <div class="ch"><h2>Backtest<small>Replays the scanner's kind of signals on past ticks. No trades, no cost</small></h2></div>
+    <button class="btn" id="bt" type="button">Run backtest</button>
+    <div id="btr"></div>
+   </div>
   </div>
   <div class="g" data-pane="res">
    <div class="ch"><h2>Results<small>Session performance</small></h2></div>
@@ -604,6 +609,43 @@ function statsUI(){var el=$('stx');if(!el)return;var T=S.trades,n=T.length;
   +'<div class="fine" style="margin-top:6px;padding-top:12px">'+esc(v)+'</div>'
   +'<div class="sh4">By market</div>'+rows(grp(function(t){return t.mn}))
   +'<div class="sh4">By contract</div>'+rows(grp(function(t){return t.label}))}
+
+/* ------------------------------------------------------------------ backtest (past ticks, no orders) */
+var BT_W=[10,50,200,1000];
+function btNew(){var a=[];BT_W.forEach(function(W,i){
+  a.push({k:'df'+i,n:'Even/Odd: follow the last '+W+' digits',c:0,w:0});
+  a.push({k:'dc'+i,n:'Even/Odd: bet against the last '+W+' digits',c:0,w:0});
+  a.push({k:'mo'+i,n:'Rise/Fall: follow the last '+W+' ticks',c:0,w:0});
+  a.push({k:'rv'+i,n:'Rise/Fall: bet against the last '+W+' ticks',c:0,w:0})});
+  var m={};a.forEach(function(r){m[r.k]=r});return{list:a,map:m}}
+function btMarket(P,dec,acc){var n=P.length,D=new Array(n),i;for(i=0;i<n;i++)D[i]=dig(P[i],dec);
+  function hit(r,w){r.c++;if(w)r.w++}
+  BT_W.forEach(function(W,wi){var ev=0,i2;
+    for(i2=0;i2<n-1;i2++){ev+=(D[i2]%2===0)?1:0;if(i2>=W)ev-=(D[i2-W]%2===0)?1:0;
+      if(i2<W-1||ev*2===W)continue;
+      var pred=ev*2>W?0:1,out=(D[i2+1]%2===0)?0:1;
+      hit(acc.map['df'+wi],pred===out);hit(acc.map['dc'+wi],pred!==out)}
+    for(i2=W;i2<n-1;i2++){var up=P[i2]>P[i2-W],dn=P[i2]<P[i2-W];if(!up&&!dn)continue;
+      var nx=P[i2+1]-P[i2];if(nx===0)continue;var rise=nx>0;
+      hit(acc.map['mo'+wi],up===rise);hit(acc.map['rv'+wi],up!==rise)}})}
+function btShow(acc,mk,tk){var out=$('btr'),be=100/mult(0,'a',0),beat=0,tot=0,best=null;
+  var rows=acc.list.filter(function(r){return r.c>0}).map(function(r){var wr=r.w/r.c*100,band=Math.sqrt(be/100*(1-be/100)/r.c)*196;
+    var o={n:r.n,c:r.c,wr:wr,band:band,gap:wr-be,real:wr>be+band};if(o.real)beat++;tot+=r.c;if(!best||wr>best.wr)best=o;return o}).sort(function(a,b){return b.wr-a.wr});
+  if(!rows.length){out.innerHTML='<div class="empty">Not enough past ticks to test.</div>';return}
+  var v=beat?beat+' of '+rows.length+' rules beat break-even beyond normal luck. With '+rows.length+' rules tested, one or two can look good by chance alone, so run it again later: a real edge shows up every time, luck does not.'
+   :'None of the '+rows.length+' rules beat break-even. On this data these signals have no edge, so a bot trading on them loses slowly. The best rule was '+best.wr.toFixed(1)+'% against the '+be.toFixed(1)+'% it needs.';
+  out.innerHTML='<div class="sg" style="margin-top:16px"><div><small>Markets</small><b>'+mk+'</b></div><div><small>Ticks each</small><b>'+tk+'</b></div><div><small>Break-even</small><b>'+be.toFixed(1)+'%</b></div></div>'
+   +'<div class="fine" style="margin-top:14px;padding-top:12px">'+esc(v)+'</div>'
+   +'<div class="txl" style="margin-top:12px">'+rows.map(function(o){return '<div class="tx '+(o.real?'w':'l')+'" style="grid-template-columns:1.7fr .8fr 1fr"><div class="t" style="font-size:12px">'+esc(o.n)+'</div><div>'+o.wr.toFixed(1)+'%<br><small style="color:var(--mute);font-size:10px">'+o.c+' tests</small></div><div class="p"><b class="'+(o.gap>=0?'up':'dn')+'">'+(o.gap>=0?'+':'')+o.gap.toFixed(1)+' pts</b><small>vs break-even</small></div></div>'}).join('')+'</div>'}
+function runBT(){var btn=$('bt');if(btn.disabled)return;
+  if(!S.MK.length){$('btr').innerHTML='<div class="empty">Markets are still loading. Try again in a moment.</div>';return}
+  btn.disabled=true;btn.textContent='Loading past ticks…';$('btr').innerHTML='';
+  var list=S.MK.slice(0,45),i=0,done=0,acc=btNew(),mk=0,tk=0,all=[];
+  function one(){if(i>=list.length)return Promise.resolve();var m=list[i++];
+    return hist(m.sym,5000).then(function(h){var pr=h.prices;if(pr&&pr.length>60){btMarket(pr,h.pip,acc);mk++;tk=Math.max(tk,pr.length)}}).catch(function(){}).then(function(){done++;btn.textContent='Testing '+done+' of '+list.length+'…';return one()})}
+  for(var k=0;k<4;k++)all.push(one());
+  Promise.all(all).then(function(){btn.disabled=false;btn.textContent='Run backtest again';btShow(acc,mk,tk)})}
+$('bt').onclick=runBT;
 
 /* ------------------------------------------------------------------ controls */
 function paintBd(){each($('bd').children,function(b,i){b.classList.toggle('on',i===S.BR)});var br=!!CT[S.CI].br;R.forEach(function(r,i){r.w.classList.toggle('sel',br&&i===S.BR);r.w.setAttribute('data-l',S.CI===2?'OVER / UNDER '+S.BR:'MATCH '+S.BR)})}
