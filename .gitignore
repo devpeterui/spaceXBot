@@ -1,0 +1,6 @@
+.env
+*.env
+!render.env.example
+__pycache__/
+*.pyc
+.venv/

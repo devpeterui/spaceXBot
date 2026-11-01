@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: vibetrade-bot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # One worker on purpose: login sessions are kept in memory.
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 60
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: TIMEZONE
+        value: Africa/Nairobi
+      - key: ALLOW_LIVE
+        value: "false"
+      - key: BINANCE_ENV
+        value: testnet
+      # Secrets: Render asks you to type these in the dashboard, they never live in Git.
+      - key: ACCESS_CODE
+        sync: false
+      - key: BINANCE_API_KEY
+        sync: false
+      - key: BINANCE_API_SECRET
+        sync: false
+      - key: DERIV_TOKEN
+        sync: false
+      - key: DERIV_APP_ID
+        sync: false
+      - key: METAAPI_TOKEN
+        sync: false
+      - key: METAAPI_ACCOUNT_ID
+        sync: false
+      - key: AI_API_KEY
+        sync: false
