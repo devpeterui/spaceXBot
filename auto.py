@@ -1,4 +1,4 @@
-"""Phase 1: automatic trading loop (Deriv RISE/FALL).
+"""Phase 1+2: automatic trading loop (Deriv RISE/FALL, plus any allowed contract type).
 
 Additive, like extras.py. It calls the app's own /analyze and /execute routes,
 so every safety rule, trade history entry and chart marker works exactly as
@@ -19,6 +19,9 @@ GRANS = (60, 120, 180, 300, 600, 900, 1800, 3600)
 DEFAULTS = {
     "symbol": "1HZ100V", "volume": 1.0, "duration": 5, "granularity": 60,
     "min_confidence": 65, "interval": 120, "max_per_hour": 6,
+    "contracts": ["rise_fall"], "cooldown": 300,
+    "params": {"duration": 5, "unit": "m", "ticks": 5, "barrier": 0.5, "digit": 5,
+               "growth_rate": 0.01, "multiplier": 10, "stop_loss": 0.5, "take_profit": 1},
 }
 
 
@@ -59,6 +62,22 @@ def register(core):
             c["max_per_hour"] = int(data.get("max_per_hour", c["max_per_hour"]))
         except (TypeError, ValueError):
             return None, "Some auto settings are not numbers."
+        api = getattr(core, "derivs_api", None)
+        allowed = api["CONTRACTS"] if api else {"rise_fall": 1}
+        cons = data.get("contracts", c.get("contracts"))
+        cons = [x for x in cons if x in allowed] if isinstance(cons, list) else []
+        c["contracts"] = cons or ["rise_fall"]
+        params = dict(c.get("params") or DEFAULTS["params"])
+        given = data.get("params")
+        if isinstance(given, dict):
+            for k in DEFAULTS["params"]:
+                if k in given:
+                    params[k] = given[k]
+        c["params"] = params
+        try:
+            c["cooldown"] = max(60, min(3600, int(data.get("cooldown", c.get("cooldown", 300)))))
+        except (TypeError, ValueError):
+            return None, "Cooldown must be a number of seconds."
         if not core.SYMBOL_RE.match(c["symbol"]):
             return None, "Invalid market name."
         if not c["volume"] > 0:
@@ -72,6 +91,52 @@ def register(core):
         c["max_per_hour"] = max(1, min(30, c["max_per_hour"]))
         return c, None
 
+    def cycle_multi(client, hdr, cfg, now):
+        """AI picks among the allowed contract types (Phase 2)."""
+        p = cfg["params"]
+        r = client.post("/derivs/analyze", headers=hdr, json=dict(
+            p, symbol=cfg["symbol"], granularity=cfg["granularity"], contracts=cfg["contracts"]))
+        d = r.get_json(silent=True) or {}
+        if r.status_code == 401:
+            halt("login session expired. Log in and switch AUTO on again.")
+            return
+        if r.status_code != 200 or d.get("status") != "success":
+            S["errors"] += 1
+            note("Analysis failed: " + str(d.get("message", r.status_code)))
+            if S["errors"] >= 3:
+                halt("3 errors in a row.")
+            return
+        S["errors"] = 0
+        conf = int(d.get("confidence", 0))
+        note(f"AI says {d.get('label') or 'WAIT'} {conf}%. {d.get('reason', '')}")
+        if d.get("action") == "WAIT" or conf < cfg["min_confidence"]:
+            S["waits"] += 1
+            note(f"No trade (needs a contract pick at {cfg['min_confidence']}%+).")
+            return
+        spec = dict(p, contract=d["contract"], action=d["side"], symbol=cfg["symbol"], stake=cfg["volume"])
+        if d.get("digit") is not None:
+            spec["digit"] = d["digit"]
+        r = client.post("/derivs/execute", headers=hdr, json=spec)
+        d2 = r.get_json(silent=True) or {}
+        if r.status_code == 401:
+            halt("login session expired. Log in and switch AUTO on again.")
+        elif d2.get("status") == "success":
+            S["errors"] = 0
+            S["placed"] += 1
+            with lock:
+                S["trades"].append(now)
+            S["open_until"] = now + core.derivs_api["hold"](d["contract"], p, cfg["cooldown"])
+            note(f"{d['label']} placed on {cfg['symbol']}, stake {cfg['volume']}, order #{d2.get('order')}.")
+        else:
+            msg = str(d2.get("message", r.status_code))
+            note("Order refused: " + msg)
+            if r.status_code == 403 and any(k in msg for k in ("Daily", "Live account", "trading hours", "above MAX")):
+                halt(msg)
+            else:
+                S["errors"] += 1
+                if S["errors"] >= 3:
+                    halt("3 errors in a row.")
+
     def cycle(client, hdr, cfg):
         now = time.time()
         if now < S["open_until"]:
@@ -84,6 +149,8 @@ def register(core):
         if capped:
             note(f"Hourly limit reached ({cfg['max_per_hour']} trades). Resting.")
             return
+        if cfg["contracts"] != ["rise_fall"]:
+            return cycle_multi(client, hdr, cfg, now)
 
         r = client.post("/analyze", headers=hdr, json={
             "symbol": cfg["symbol"], "granularity": cfg["granularity"], "duration": cfg["duration"]})
@@ -181,6 +248,10 @@ def register(core):
         problem = broker.size_error(cfg["volume"])
         if problem:
             return jsonify({"status": "error", "message": problem}), 403
+        if cfg["contracts"] != ["rise_fall"]:
+            err = core.derivs_api["check"](cfg)
+            if err:
+                return jsonify({"status": "error", "message": err}), 400
         with lock:
             if S["running"]:
                 S["cfg"] = cfg
@@ -188,7 +259,7 @@ def register(core):
             ev = threading.Event()
             S.update(cfg=cfg, token=token, running=True, stop=ev, errors=0,
                      open_until=0.0, since=time.time())
-        note(f"AUTO started on {cfg['symbol']}: every {cfg['interval']}s, min {cfg['min_confidence']}% confidence, max {cfg['max_per_hour']} trades/hour.")
+        note(f"AUTO started on {cfg['symbol']} using {', '.join(cfg['contracts'])}: every {cfg['interval']}s, min {cfg['min_confidence']}% confidence, max {cfg['max_per_hour']} trades/hour.")
         threading.Thread(target=loop, args=(ev,), daemon=True).start()
         return jsonify(snapshot())
 

@@ -760,6 +760,14 @@ except Exception as _err:
 
 
 try:
+    import derivs
+
+    derivs.register(_sys.modules[__name__])
+except Exception as _err:
+    print("derivs not loaded:", _err)
+
+
+try:
     import auto
 
     auto.register(_sys.modules[__name__])

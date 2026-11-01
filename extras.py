@@ -343,6 +343,8 @@ def register(core):
         result.update({"status": "success", "symbol": symbol, "time": time.time()})
         return jsonify(result)
 
+    core.extras_api = {"fetch_candles": fetch_candles, "ask_signal": ask_signal}
+
     # ---- front-end script
     @app.get("/chart.js")
     def chart_js():

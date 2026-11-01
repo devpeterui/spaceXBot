@@ -25,3 +25,8 @@ One dashboard, three markets. Only the ones whose keys you set appear on the log
 - `MAX_POSITIONS` and `PRICE_MIN/MAX` apply only where the broker supports them (MT5; price limits also Binance).
 - Daily loss/profit limits compare against the first equity seen that day. Render's free server sleeps and restarts, which resets that starting point.
 - `MAX_RISK_PCT` is not used: orders have no stop loss.
+
+## Auto trading and contract types (Deriv demo)
+- `auto.py` + `public/auto.js`: MANUAL / AUTO switch. In AUTO the AI reads the chart on a timer and places the trade itself. Demo accounts only.
+- `derivs.py` + `public/derivs.js`: Rise/Fall, Higher/Lower, Touch, No Touch, Even/Odd, Over/Under, Matches/Differs, Accumulators, Multipliers (stop loss + take profit always sent), Vanilla and Turbos (experimental). AUTO lets the AI choose among the contract types you tick.
+- All of it goes through the normal safety limits (`MAX_STAKE`, daily loss, trading hours).

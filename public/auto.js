@@ -1,4 +1,4 @@
-/* Phase 1: MANUAL / AUTO switch for the Deriv market. Additive panel. */
+/* Phase 1+2: MANUAL / AUTO switch for the Deriv market. Additive panel. */
 (function () {
   'use strict';
   if (window.__vtAuto) return;
@@ -30,9 +30,10 @@
     '<div><label for="vaConf">Min confidence %</label><input id="vaConf" type="number" min="50" max="95" value="65"></div>' +
     '<div><label for="vaInt">Check every (sec)</label><input id="vaInt" type="number" min="60" max="3600" value="120"></div>' +
     '<div><label for="vaMax">Max trades / hour</label><input id="vaMax" type="number" min="1" max="30" value="6"></div></div>' +
+    '<label>Contracts the AI may use (only Rise/Fall ticked = classic mode)</label><div id="vaCons" class="info">Loading contract types...</div>' +
     '<div class="info" id="vaInfo">Manual: you press RISE / FALL yourself.</div>' +
     '<div class="log" id="vaLog"></div>' +
-    '<div class="warn">AUTO uses the market, stake and duration above plus the chart timeframe. Demo accounts only. ' +
+    '<div class="warn">AUTO uses the market and stake above, the settings in the Derivatives box, and the chart timeframe. Demo accounts only. ' +
     'It stops itself on daily limits or repeated errors. Short-term moves are close to random: expect losses too.</div>';
 
   var mounted = false;
@@ -58,6 +59,27 @@
     });
   }
 
+  function chosen() {
+    var out = [];
+    document.querySelectorAll('#vaCons input:checked').forEach(function (i) { out.push(i.value); });
+    return out.length ? out : ['rise_fall'];
+  }
+
+  function buildCons() {
+    var host = g('vaCons');
+    if (!window.__vtDerivs || host.getAttribute('data-built') || !window.__vtDerivs.catalog().length) return;
+    host.textContent = '';
+    window.__vtDerivs.catalog().forEach(function (c) {
+      var l = document.createElement('label'), i = document.createElement('input');
+      l.style.cssText = 'display:inline-block;margin:0 10px 4px 0;font-size:12px;color:#ccc';
+      i.type = 'checkbox'; i.value = c.id; i.style.cssText = 'width:auto;margin:0 4px 0 0;padding:0;display:inline';
+      i.checked = c.id === 'rise_fall';
+      l.appendChild(i); l.appendChild(document.createTextNode(c.label));
+      host.appendChild(l);
+    });
+    host.setAttribute('data-built', '1');
+  }
+
   function settings() {
     var tf = g('vtTf');
     return {
@@ -67,7 +89,9 @@
       granularity: tf ? parseInt(tf.value, 10) : 60,
       min_confidence: parseInt(g('vaConf').value, 10) || 65,
       interval: parseInt(g('vaInt').value, 10) || 120,
-      max_per_hour: parseInt(g('vaMax').value, 10) || 6
+      max_per_hour: parseInt(g('vaMax').value, 10) || 6,
+      contracts: chosen(),
+      params: window.__vtDerivs ? window.__vtDerivs.params() : {}
     };
   }
 
@@ -81,7 +105,8 @@
     g('vaMan').classList.toggle('on', !st.running);
     g('vaAut').classList.toggle('on', st.running);
     ['vaConf', 'vaInt', 'vaMax'].forEach(function (id) { g(id).disabled = st.running; });
-    ['symbol', 'volume', 'duration'].forEach(function (id) { if (g(id)) g(id).disabled = st.running; });
+    document.querySelectorAll('#vaCons input').forEach(function (i) { i.disabled = st.running; });
+    ['symbol', 'volume', 'duration', 'dvMkt', 'dvType'].forEach(function (id) { if (g(id)) g(id).disabled = st.running; });
     var info = g('vaInfo');
     if (st.running) {
       info.textContent = 'AUTO is ON. Trades placed: ' + (d.placed || 0) + ' (' + (d.trades_last_hour || 0) +
@@ -121,6 +146,7 @@
     var view = g('tradeView');
     var visible = !!view && !view.classList.contains('hidden') && sessionStorage.getItem('broker') === 'deriv';
     box.classList.toggle('hidden', !visible);
+    if (visible) buildCons();
     if (!visible || document.visibilityState === 'hidden' || st.busy) return;
     var now = Date.now();
     if (now - st.t > (st.running ? 5000 : 15000)) { st.t = now; poll(); }
