@@ -249,7 +249,7 @@ button{font-family:inherit}
 @media(max-width:380px){.mt svg{display:none}}
 @media(min-width:900px){.mt{max-width:460px}.mt button[data-m="res"]{display:none}}
 [data-pane]{animation:rise .45s var(--ease) both}
-#app[data-m="trade"] [data-pane]:not([data-pane~="trade"]),#app[data-m="bot"] [data-pane]:not([data-pane~="bot"]){display:none}
+#app[data-m="trade"] [data-pane]:not([data-pane~="trade"]),#app[data-m="bot"] [data-pane]:not([data-pane~="bot"]),#app[data-m="mkt"] [data-pane]:not([data-pane~="mkt"]){display:none}
 @media(max-width:899px){#app[data-m="res"] [data-pane]:not([data-pane="res"]){display:none}}
 @media(min-width:900px){#app [data-pane="res"]{display:block!important}}
 
@@ -284,6 +284,7 @@ body{overscroll-behavior-y:none}
  <div class="tabs mt" id="mt" role="tablist" aria-label="Sections"><span class="ind" id="mti"></span>
   <button role="tab" id="mt-trade" data-m="trade" class="on" aria-selected="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v3M7 15v5M17 3v5M17 17v4"/><rect x="5" y="7" width="4" height="8" rx="1.2"/><rect x="15" y="8" width="4" height="9" rx="1.2"/></svg><span>Trade</span></button>
   <button role="tab" id="mt-bot" data-m="bot" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="3"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></svg><span>Auto bot</span><i class="dot" id="mtd"></i></button>
+  <button role="tab" id="mt-mkt" data-m="mkt" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 17.5h7M17.5 14v7"/></svg><span>Markets</span></button>
   <button role="tab" id="mt-res" data-m="res" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Results</span><em class="bdg" id="mtb">0</em></button>
  </div>
  <div class="grid">
@@ -331,6 +332,16 @@ body{overscroll-behavior-y:none}
     <div class="ch"><h2>Backtest<small>Replays the scanner's kind of signals on past ticks. No trades, no cost</small></h2></div>
     <button class="btn" id="bt" type="button">Run backtest</button>
     <div id="btr"></div>
+   </div>
+   <div class="g" data-pane="mkt">
+    <div class="ch"><h2>Run check<small>Is it sensible to run the bot right now</small></h2></div>
+    <div class="txl" id="rck" style="max-height:none"></div>
+    <button class="rs" id="rcb" type="button">Check again</button>
+   </div>
+   <div class="g" data-pane="mkt">
+    <div class="ch"><h2>Weekly market brief<small>How every market behaved over the last 7 days</small></h2></div>
+    <button class="btn" id="mb" type="button">Build weekly brief</button>
+    <div id="mbr"></div>
    </div>
   </div>
   <div class="g" data-pane="res">
@@ -628,10 +639,12 @@ function btMarket(P,dec,acc){var n=P.length,D=new Array(n),i;for(i=0;i<n;i++)D[i
     for(i2=W;i2<n-1;i2++){var up=P[i2]>P[i2-W],dn=P[i2]<P[i2-W];if(!up&&!dn)continue;
       var nx=P[i2+1]-P[i2];if(nx===0)continue;var rise=nx>0;
       hit(acc.map['mo'+wi],up===rise);hit(acc.map['rv'+wi],up!==rise)}})}
+var BTX=null;
 function btShow(acc,mk,tk){var out=$('btr'),be=100/mult(0,'a',0),beat=0,tot=0,best=null;
   var rows=acc.list.filter(function(r){return r.c>0}).map(function(r){var wr=r.w/r.c*100,band=Math.sqrt(be/100*(1-be/100)/r.c)*196;
     var o={n:r.n,c:r.c,wr:wr,band:band,gap:wr-be,real:wr>be+band};if(o.real)beat++;tot+=r.c;if(!best||wr>best.wr)best=o;return o}).sort(function(a,b){return b.wr-a.wr});
   if(!rows.length){out.innerHTML='<div class="empty">Not enough past ticks to test.</div>';return}
+  BTX={beat:beat,rules:rows.length,t:Date.now()};
   var v=beat?beat+' of '+rows.length+' rules beat break-even beyond normal luck. With '+rows.length+' rules tested, one or two can look good by chance alone, so run it again later: a real edge shows up every time, luck does not.'
    :'None of the '+rows.length+' rules beat break-even. On this data these signals have no edge, so a bot trading on them loses slowly. The best rule was '+best.wr.toFixed(1)+'% against the '+be.toFixed(1)+'% it needs.';
   out.innerHTML='<div class="sg" style="margin-top:16px"><div><small>Markets</small><b>'+mk+'</b></div><div><small>Ticks each</small><b>'+tk+'</b></div><div><small>Break-even</small><b>'+be.toFixed(1)+'%</b></div></div>'
@@ -646,6 +659,62 @@ function runBT(){var btn=$('bt');if(btn.disabled)return;
   for(var k=0;k<4;k++)all.push(one());
   Promise.all(all).then(function(){btn.disabled=false;btn.textContent='Run backtest again';btShow(acc,mk,tk)})}
 $('bt').onclick=runBT;
+
+/* ------------------------------------------------------------------ weekly market brief + run check */
+function histC(sym){
+  return wsReq({ticks_history:sym,end:'latest',count:168,style:'candles',granularity:3600}).then(function(m){
+    var c=m.candles;if(!c||!c.length)throw new Error('empty');
+    return c.map(function(x){return{open:+x.open,high:+x.high,low:+x.low,close:+x.close,epoch:+x.epoch}})
+  }).catch(function(){
+    return api('/bulk/candles?symbol='+encodeURIComponent(sym)+'&count=168&gran=3600').then(function(r){
+      if(r.status===401){expired();throw new Error('session')}
+      if(r.d.status!=='success')throw new Error(r.d.message||'No candle data');
+      return r.d.candles})})}
+function briefOne(name,c){var n=c.length;if(n<24)return null;
+  var rng=0,path=0,hr=[],hc=[],i,h;for(h=0;h<24;h++){hr.push(0);hc.push(0)}
+  for(i=0;i<n;i++){var x=c[i],cl=x.close||1,r=(x.high-x.low)/cl*100;rng+=r;h=new Date(x.epoch*1000).getHours();hr[h]+=r;hc[h]++;
+    if(i>0)path+=Math.abs(x.close-c[i-1].close)}
+  var act=rng/n,net=Math.abs(c[n-1].close-c[0].close),first=c[0].open||1,avg=hr.map(function(v,k){return hc[k]?v/hc[k]:null}).filter(function(v){return v!==null}),
+      top=Math.max.apply(null,avg),low=Math.min.apply(null,avg);
+  return{name:name,chg:(c[n-1].close-first)/first*100,act:act,eff:path>0?net/path:0,flat:act>0?top/act:1,n:n,low:act>0?low/act:1}}
+function briefShow(rows,total){var out=$('mbr');
+  if(!rows.length){out.innerHTML='<div class="empty">No candle data came back. Try again in a moment.</div>';return}
+  var by=rows.slice().sort(function(a,b){return b.act-a.act}),t1=by[Math.floor(by.length/3)].act,t2=by[Math.floor(by.length*2/3)].act;
+  var gain=rows.slice().sort(function(a,b){return b.chg-a.chg}),flat=rows.reduce(function(a,r){return a+r.flat},0)/rows.length;
+  function nm(r){return esc(r.name.replace(/\s*Index$/i,''))}
+  var txt='Most active: '+by.slice(0,3).map(nm).join(', ')+'. Calmest: '+by.slice(-3).reverse().map(nm).join(', ')+'. Biggest weekly rise: '+nm(gain[0])+' ('+(gain[0].chg>=0?'+':'')+gain[0].chg.toFixed(2)+'%); biggest fall: '+nm(gain[gain.length-1])+' ('+gain[gain.length-1].chg.toFixed(2)+'%).';
+  var tod=flat<1.35?'Activity is almost flat across the hours of the day, so there is no better or worse hour to trade.':'Some hours were busier than others this week, but that describes the past; it does not make an hour safer to trade.';
+  var lab=function(a){return a>=t1?'Active':a>=t2?'Normal':'Calm'};
+  out.innerHTML='<div class="sg" style="margin-top:16px"><div><small>Markets</small><b>'+rows.length+'</b></div><div><small>Hours each</small><b>'+rows[0].n+'</b></div><div><small>Day flatness</small><b>'+flat.toFixed(2)+'x</b></div></div>'
+   +'<div class="fine" style="margin-top:14px;padding-top:12px">'+txt+' '+esc(tod)+'</div>'
+   +'<div class="txl" style="margin-top:12px">'+by.map(function(r){return '<div class="tx '+(r.chg>=0?'w':'l')+'" style="grid-template-columns:1.5fr .8fr 1fr"><div class="t" style="font-size:12px">'+esc(r.name)+'<small style="display:block;font-weight:500;color:var(--mute);font-size:10px">avg hourly range '+r.act.toFixed(3)+'%</small></div><div>'+lab(r.act)+'<br><small style="color:var(--mute);font-size:10px">activity</small></div><div class="p"><b class="'+(r.chg>=0?'up':'dn')+'">'+(r.chg>=0?'+':'')+r.chg.toFixed(2)+'%</b><small>7 days</small></div></div>'}).join('')+'</div>'
+   +'<div class="fine" style="margin-top:12px">This is a description of the past week from Deriv\'s hourly candles. It is not a forecast.</div>'}
+function runBrief(){var btn=$('mb');if(btn.disabled)return;
+  if(!S.MK.length){$('mbr').innerHTML='<div class="empty">Markets are still loading. Try again in a moment.</div>';return}
+  btn.disabled=true;btn.textContent='Loading the week…';$('mbr').innerHTML='';
+  var list=S.MK.slice(0,45),i=0,done=0,rows=[],all=[];
+  function one(){if(i>=list.length)return Promise.resolve();var m=list[i++];
+    return histC(m.sym).then(function(c){var o=briefOne(m.name,c);if(o)rows.push(o)}).catch(function(){}).then(function(){done++;btn.textContent='Reading '+done+' of '+list.length+'…';return one()})}
+  for(var k=0;k<4;k++)all.push(one());
+  Promise.all(all).then(function(){btn.disabled=false;btn.textContent='Refresh weekly brief';briefShow(rows,list.length)})}
+function runCheck(){var el=$('rck');if(!el)return;
+  function row(ok,t,d){var c=ok===true?'up':ok===false?'dn':'';return '<div class="tx '+(ok===true?'w':ok===false?'l':'')+'" style="grid-template-columns:1fr auto"><div class="t" style="font-size:13px">'+esc(t)+'<small style="display:block;font-weight:500;color:var(--mute);font-size:11px;margin-top:2px">'+esc(d)+'</small></div><div class="p"><b class="'+c+'">'+(ok===true?'Pass':ok===false?'Fail':'Not tested')+'</b></div></div>'}
+  var feed=Date.now()-lastTickAt<6000,cap=dayChk(),be=100/mult(0,'a',0),n=S.trades.length,w=0;S.trades.forEach(function(t){if(t.won)w++});
+  var wr=n?w/n*100:0,band=n?Math.sqrt(be/100*(1-be/100)/n)*196:0;
+  var c1=feed,c2=!!S.demo,c3=!cap,c4=BTX?(BTX.beat>0):null,c5=n<100?null:(wr>be+band);
+  var h='';
+  h+=row(c1,'Price feed',c1?'Live ticks are arriving.':'No fresh ticks. Wait for the Live badge.');
+  h+=row(c2,'Account type',c2?'Demo account. The bot is demo-only.':'Live account. The bot will not run on it.');
+  h+=row(c3,'Daily loss cap',c3?(DAY.base>0?f(Math.max(0,capLeft()))+' '+S.cur+' left today.':'Starts after login.'):cap);
+  h+=row(c4,'Edge in past ticks',c4===null?'Run the Backtest in the Auto bot tab.':c4?BTX.beat+' of '+BTX.rules+' rules beat break-even. Could be luck: test again later.':'None of '+BTX.rules+' rules beat break-even.');
+  h+=row(c5,'This session',c5===null?(n+' of 100 trades needed.'):c5?'Win rate '+wr.toFixed(1)+'% is above break-even '+be.toFixed(1)+'% beyond luck.':'Win rate '+wr.toFixed(1)+'% has not beaten break-even '+be.toFixed(1)+'%.');
+  var v,vc;
+  if(!c1||!c2||!c3){v='Not now. Fix the failed checks above first.';vc='dn'}
+  else if(c4===false||c5===false){v='Not recommended. Nothing has shown an edge, and the hour of the day does not change the odds on these contracts. If you run it anyway, the loss cap protects you.';vc='dn'}
+  else if(c4===null){v='Conditions are fine, but nothing has been tested yet. Run the Backtest first.';vc=''}
+  else{v='Conditions pass and an edge showed up in past ticks. Treat it as unproven until the session stats agree. Keep stakes small and the cap on.';vc='up'}
+  el.innerHTML=h+'<div class="fine" style="margin-top:6px;padding-top:12px"><b class="'+vc+'">'+esc(v)+'</b></div>'}
+$('mb').onclick=runBrief;$('rcb').onclick=runCheck;
 
 /* ------------------------------------------------------------------ controls */
 function paintBd(){each($('bd').children,function(b,i){b.classList.toggle('on',i===S.BR)});var br=!!CT[S.CI].br;R.forEach(function(r,i){r.w.classList.toggle('sel',br&&i===S.BR);r.w.setAttribute('data-l',S.CI===2?'OVER / UNDER '+S.BR:'MATCH '+S.BR)})}
@@ -664,6 +733,7 @@ function show(m,user){if(desk.matches&&m==='res')m='trade';cur=m;app.setAttribut
  each(btns,function(b){var on=b.getAttribute('data-m')===m;b.classList.toggle('on',on);b.setAttribute('aria-selected',on?'true':'false');b.tabIndex=on?0:-1});
  place();if(user){var t=mt.getBoundingClientRect().top;if(t<0||window.pageYOffset>0&&t<12){var y=(window.pageYOffset||0)+mt.parentNode.getBoundingClientRect().top;try{window.scrollTo({top:Math.max(0,y-8),behavior:'smooth'})}catch(e){window.scrollTo(0,Math.max(0,y-8))}}}
  try{sessionStorage.setItem('sx_tab',m)}catch(e){}
+ if(m==='mkt'&&typeof runCheck==='function')runCheck();
  if(m==='trade'||desk.matches)requestAnimationFrame(function(){if(view==='chart')drawC()})}
 each(btns,function(b){b.onclick=function(){show(b.getAttribute('data-m'),true)};
  b.onkeydown=function(e){var k=e.key;if(k!=='ArrowRight'&&k!=='ArrowLeft')return;var vis=Array.prototype.filter.call(btns,function(x){return x.offsetWidth>0}),i=vis.indexOf(b),n=vis[(i+(k==='ArrowRight'?1:vis.length-1))%vis.length];n.focus();show(n.getAttribute('data-m'),false);e.preventDefault()}});
@@ -674,7 +744,7 @@ function hint(){var st=$('st');dot.classList.toggle('on',st.classList.contains('
 try{var mo=new MutationObserver(hint);mo.observe($('st'),{attributes:true,childList:true,characterData:true,subtree:true});mo.observe($('kR'),{childList:true,characterData:true,subtree:true})}catch(e){}
 hint();
 var saved=null;try{saved=sessionStorage.getItem('sx_tab')}catch(e){}
-show(saved==='bot'||saved==='res'?saved:'trade',false);
+show(saved==='bot'||saved==='res'||saved==='mkt'?saved:'trade',false);
 if(document.fonts&&document.fonts.ready)document.fonts.ready.then(place);
 setTimeout(place,300);
 /* app starts hidden, so measure again once it becomes visible */

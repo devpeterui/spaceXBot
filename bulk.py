@@ -32,6 +32,7 @@ KINDS = {
 
 _lock = threading.Lock()
 _tick_cache = {}   # (symbol, count) -> (time, payload)
+_candle_cache = {}  # (symbol, count, granularity) -> (time, payload)
 
 
 def _ws_close(ws):
@@ -138,6 +139,73 @@ def register(core):
                     return {"status": "success", "symbol": symbol, "prices": prices,
                             "times": times, "pip": pip}
             raise BrokerError("Deriv sent no tick data in time.", 504)
+        except BrokerError:
+            raise
+        except Exception:
+            raise BrokerError("Deriv price feed dropped. Try again.", 503)
+        finally:
+            _ws_close(ws)
+
+    # ------------------------------------------------------------ candles (weekly brief)
+    @app.get("/bulk/candles")
+    def bulk_candles():
+        _, _, bad = need()
+        if bad:
+            return bad
+        symbol = str(request.args.get("symbol", "")).strip()
+        if not derivs.SYMBOL.match(symbol):
+            return jsonify({"status": "error", "message": "Invalid market name."}), 400
+        try:
+            count = max(24, min(int(request.args.get("count", 168)), 500))
+            gran = int(request.args.get("gran", 3600))
+        except (TypeError, ValueError):
+            count, gran = 168, 3600
+        if gran not in (60, 120, 180, 300, 600, 900, 1800, 3600, 7200, 14400, 28800, 86400):
+            gran = 3600
+        key, now = (symbol, count, gran), time.time()
+        with _lock:
+            hit = _candle_cache.get(key)
+            if hit and now - hit[0] < 300:
+                return jsonify(hit[1])
+        try:
+            out = _fetch_candles(symbol, count, gran)
+        except BrokerError as e:
+            return jsonify({"status": "error", "message": e.message}), e.http
+        with _lock:
+            _candle_cache[key] = (now, out)
+            if len(_candle_cache) > 120:
+                _candle_cache.clear()
+        return jsonify(out)
+
+    def _fetch_candles(symbol, count, gran):
+        import websocket
+        try:
+            ws = websocket.create_connection(PUBLIC_WS, timeout=15)
+        except Exception:
+            raise BrokerError("Cannot connect to Deriv's price feed.", 503)
+        try:
+            ws.send(json.dumps({"ticks_history": symbol, "end": "latest", "count": count,
+                                "style": "candles", "granularity": gran, "req_id": 22}))
+            for _ in range(10):
+                msg = json.loads(ws.recv())
+                if msg.get("req_id") not in (22, None):
+                    continue
+                if msg.get("error"):
+                    err = msg["error"]
+                    raise BrokerError("Deriv price data: " + str(err.get("message", err)), 502)
+                rows = msg.get("candles")
+                if isinstance(rows, list) and rows:
+                    candles = []
+                    for c in rows:
+                        try:
+                            candles.append({"open": float(c["open"]), "high": float(c["high"]),
+                                            "low": float(c["low"]), "close": float(c["close"]),
+                                            "epoch": int(c["epoch"])})
+                        except (KeyError, TypeError, ValueError):
+                            continue
+                    if candles:
+                        return {"status": "success", "symbol": symbol, "candles": candles}
+            raise BrokerError("Deriv sent no candle data in time.", 504)
         except BrokerError:
             raise
         except Exception:

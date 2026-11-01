@@ -15,6 +15,7 @@ One page, one market, zero cost. Digit and rise/fall trading on your **free Deri
 - `public/index.html`: the SpaceX Bulk Trader page. It is split into three tabs: Trade (market, digits/candles, scanner, limits), Auto bot (bot settings, limits) and Results. On desktop Results stays in the side column; on phones it is its own tab. `sw.js`, manifest and icons make it installable on a phone.
 - Daily loss cap (Limits card): default 5% of the balance you start the day with. No order is sent if it could push the day's loss past the cap, and once it is reached trading stays locked until tomorrow on that device. Resetting the session or raising the percentage does not unlock it.
 - Backtest (Auto bot tab): replays digit and rise/fall rules on up to 5000 past ticks of each market and compares them with break-even. It places no orders.
+- Markets tab: Run check (feed, account type, daily cap, backtest evidence, session stats) and a weekly brief built from Deriv's hourly candles for all markets. `bulk.py` serves `/bulk/candles` as a fallback when the browser cannot reach Deriv directly. No database is needed: Deriv keeps the week of history.
 - Stats tab (Results): your real win rate against break-even, a luck range, and results by market and contract.
 - `render.yaml`, `render.env.example`: Render settings and every variable.
 
