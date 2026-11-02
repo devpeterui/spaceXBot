@@ -883,5 +883,13 @@ except Exception as _err:
     print("indicators not loaded:", _err)
 
 
+try:
+    import digitstats
+
+    digitstats.register(_sys.modules[__name__])
+except Exception as _err:
+    print("digitstats not loaded:", _err)
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")))

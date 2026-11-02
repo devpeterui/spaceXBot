@@ -382,6 +382,8 @@ body{overscroll-behavior-y:none}
     <div class="ch"><h2>Brain<small>Remembers each market's ticks on this device and learns from them</small></h2></div>
     <div class="sg"><div><small>Ticks stored</small><b id="brT">0</b></div><div><small>Markets known</small><b id="brM">0</b></div><div><small>Ready to trade</small><b id="brR">0</b></div></div>
     <div class="bl" id="brL"></div>
+    <button class="rs" id="brS" type="button">Check on server</button>
+    <div class="bl" id="brSV"></div>
     <button class="rs" id="brX" type="button">Clear brain</button>
    </div>
    <div class="g" data-pane="bot">
@@ -505,6 +507,18 @@ function brUI(){var el=$('brL');if(!el)return;var ks=Object.keys(BRAIN),t=0,rdy=
     ||'<div class="empty">Nothing stored yet. It fills itself while you use the app.</div>'}
 $('brX').onclick=function(){if(!confirm('Erase everything the brain has learned on this device?'))return;
   BRAIN={};BRV={};brDirty=false;try{localStorage.removeItem(BR_KEY)}catch(e){}brUI();log('Brain cleared.')};
+/* server-side digit stats (Phase 3): fresh 1000 ticks per market, same z rule as the brain */
+$('brS').onclick=function(){var btn=$('brS'),box=$('brSV'),ms=S.MK.slice(0,8);
+  if(!ms.length){box.innerHTML='<div class="empty">No markets loaded yet.</div>';return}
+  btn.disabled=true;btn.textContent='Checking...';
+  api('/digits/stats',{method:'POST',body:JSON.stringify({symbols:ms.map(function(m){return m.sym}),count:1000})}).then(function(r){
+    btn.disabled=false;btn.textContent='Check on server';
+    if(r.status===401||r.status===403&&r.d&&r.d.expired){return expired()}
+    if(!r.ok||!r.d||!r.d.rows){box.innerHTML='<div class="empty">'+esc((r.d&&r.d.message)||'Server check failed.')+'</div>';return}
+    var nm={};ms.forEach(function(m){nm[m.sym]=m.sn||m.name});
+    box.innerHTML=r.d.rows.map(function(x){return '<div class="br"><span>'+esc(nm[x.symbol]||x.symbol)+'</span><span style="grid-column:2/4">'+esc(x.verdict||'')+(x.leads&&x.leads[0]?' · '+esc(x.leads[0].side)+' z '+x.leads[0].z:'')+'</span></div>'}).join('');
+    log('Server digit check: '+r.d.rows.filter(function(x){return x.verdict==='BIAS'}).length+' of '+r.d.rows.length+' markets show a lead (often just chance).')});
+};
 /* keeps learning every market in the background, one at a time */
 setInterval(function(){if(!S.token||!S.MK.length||brLearnBusy||document.hidden||!wsOK)return;
   var m=S.MK[brLearnI++%S.MK.length];if(!m||m===S.SEL)return;brLearnBusy=true;
