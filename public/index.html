@@ -271,6 +271,41 @@ body{overscroll-behavior-y:none}
 .swt:focus-visible{outline:2px solid var(--c4);outline-offset:3px}
 .sr b small{display:block;font-size:10px;font-weight:600;letter-spacing:.12em;color:var(--teal);margin-top:2px}
 .sr b small.cm{color:var(--c4)}.sr b small.sp,.sr b small.fl{color:var(--red)}
+
+/* brain + monitor */
+#monb{margin:0 0 16px}
+.bl{display:grid;gap:9px;margin:16px 0 4px}
+.br{display:grid;grid-template-columns:minmax(0,1fr) 72px 44px;gap:10px;align-items:center;font-size:12px}
+.br span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.br i{display:block;height:4px;border-radius:9px;background:var(--c2);overflow:hidden}
+.br u{display:block;height:100%;background:var(--teal);border-radius:9px}
+.br em{font-style:normal;text-align:right;color:var(--mute)}
+.fine.open{max-height:none;-webkit-mask-image:none;mask-image:none}
+/* mobile polish: desktop layout is untouched */
+@media(max-width:700px){
+ .hd{flex-wrap:wrap;row-gap:10px}
+ .acc{margin-left:auto;min-width:0;max-width:100%;flex-wrap:wrap;gap:8px}
+ .ch{flex-wrap:wrap}
+ .inp{align-items:end}
+ .inp label,.ai4 label{min-height:2.6em;display:flex;align-items:flex-end;justify-content:center;line-height:1.25}
+ .mkb b{font-size:14px;line-height:1.25}
+ #cc{height:240px}
+ .bd button{width:38px;height:38px}
+ .tabs button,.vs button,.rs{min-height:44px}
+ .sb{width:100%;margin-left:0}
+ .lc input{font-size:16px}
+ .fine:not(.open){max-height:5.6em;overflow:hidden;cursor:pointer;-webkit-mask-image:linear-gradient(#000 45%,transparent);mask-image:linear-gradient(#000 45%,transparent)}
+ .ft{padding-bottom:calc(32px + env(safe-area-inset-bottom,0px))}
+}
+@media(max-width:400px){
+ .hd .logo svg{width:112px}
+ .acc b{font-size:13px}
+ .ct button,.mt button{font-size:11px;padding-left:0;padding-right:0}
+ .sr{grid-template-columns:minmax(0,1fr) auto 40px;gap:8px;padding:10px}
+ .tx{grid-template-columns:.9fr 1.1fr 1.1fr;padding:10px}
+ .sg b{font-size:13px}
+ .g{padding:16px}
+}
 </style>
 </head>
 <body>
@@ -336,10 +371,18 @@ body{overscroll-behavior-y:none}
      <button class="btn sb" id="sb">Connect bot</button>
     </div>
     <div class="asw"><div><b id="aswl">Auto-switch markets</b><small id="asws"></small></div><button type="button" class="swt on" id="asw" role="switch" aria-checked="true" aria-labelledby="aswl"><i></i></button></div>
+    <div class="asw"><div><b id="mswl">Monitor mode</b><small id="msws"></small></div><button type="button" class="swt" id="msw" role="switch" aria-checked="false" aria-labelledby="mswl"><i></i></button></div>
+    <div class="sg hid" id="monb"><div><small>Practice trades</small><b id="mnN">0</b></div><div><small>Win rate</small><b id="mnW">—</b></div><div><small>Practice P/L</small><b id="mnP">0.00</b></div></div>
     <div class="scr hid" id="scr"></div>
     <div class="inp" style="grid-template-columns:1fr"><div><label for="aS">Stake</label><input id="aS" type="number" value="0.5" min="0.35" step="0.05"></div></div>
     <div style="display:none"><input id="aN" type="number" value="1"><input id="aM" type="number" value="1"><input id="aG" type="number" value="75"><input id="aX" type="number" value="3"></div>
     <div class="fine"><b>You set the stake and the stop loss (Limits card). The bot does the rest:</b> it reads the recent ticks of every market, picks the market and contract, chooses the number of ticks (1 for digits, 5 for rise/fall), keeps the signal bar at 75, stays at a flat stake with no martingale, stops after 3 losses in a row, and sets take profit to twice your stop loss. It remembers its own results per market and skips setups that keep losing. The bot only trades when a market's digits are provably uneven (chi-square test) and the signal is strong enough, otherwise it waits. It follows a proven bias, never a "due" streak. It stops at your take profit, stop loss, loss streak or max trades. Take profit must be at least your stop loss. No setup is guaranteed: each win pays about 95% of the stake, so a market with no real bias loses slowly. Auto-switch measures how far each market's ticks move and whether that just jumped. It moves the bot to the strongest steady setup and pauses on a spike or a frozen feed. Switch it off to keep the bot on the market you picked. It chooses where to trade, it does not improve the odds.</div>
+   </div>
+   <div class="g" data-pane="bot" id="brc">
+    <div class="ch"><h2>Brain<small>Remembers each market's ticks on this device and learns from them</small></h2></div>
+    <div class="sg"><div><small>Ticks stored</small><b id="brT">0</b></div><div><small>Markets known</small><b id="brM">0</b></div><div><small>Ready to trade</small><b id="brR">0</b></div></div>
+    <div class="bl" id="brL"></div>
+    <button class="rs" id="brX" type="button">Clear brain</button>
    </div>
    <div class="g" data-pane="bot">
     <div class="ch"><h2>Backtest<small>Replays the scanner's kind of signals on past ticks. No trades, no cost</small></h2></div>
@@ -424,6 +467,86 @@ var S={token:'',demo:true,cur:'USD',bal:0,maxStake:1,maxBulk:5,MK:[],SEL:null,CI
 var BOT={on:false,busy:false,pick:null,m:null,ci:0,br:0,streak:0,since:0,wait:0};
 var DAY={k:'',base:0,pl:0,lock:false};
 var SW={auto:true};try{SW.auto=localStorage.getItem('sx_autosw')!=='0'}catch(e){}
+
+/* ---- BRAIN: remembers every market's digits on this device, and MONITOR mode ---- */
+var BR_KEY='sx_brain_v1',BR_MIN=600,BR_MAX=3000,BR_Z=1.64,BRAIN={},BRV={},brDirty=false,brLearnI=0,brLearnBusy=false;
+var MON={on:false,pend:null,n:0,w:0,pl:0};try{MON.on=localStorage.getItem('sx_mon')==='1'}catch(e){}
+function brLoad(){try{var o=JSON.parse(localStorage.getItem(BR_KEY)||'{}');BRAIN=o.m||{};BRV=o.v||{}}catch(e){BRAIN={};BRV={}}}
+function brSave(){if(!brDirty)return;
+  try{localStorage.setItem(BR_KEY,JSON.stringify({m:BRAIN,v:BRV}));brDirty=false}
+  catch(e){Object.keys(BRAIN).forEach(function(k){BRAIN[k].d=BRAIN[k].d.slice(-1000)});try{localStorage.setItem(BR_KEY,JSON.stringify({m:BRAIN,v:BRV}));brDirty=false}catch(e2){}}}
+function brRec(sym){var r=BRAIN[sym];if(!r)r=BRAIN[sym]={d:'',ep:0,n:0,c:[0,0,0,0,0,0,0,0,0,0]};return r}
+function brAdd(r,d){r.d+=d;r.n++;r.c[d]++;if(r.d.length>BR_MAX)r.d=r.d.slice(-BR_MAX);brDirty=true}
+function brFeed(sym,times,prices,dec){if(!sym||!prices||!prices.length)return;var r=brRec(sym),i,ep;
+  if(!times||times.length!==prices.length){if(r.d.length)return;times=[]}
+  for(i=0;i<prices.length;i++){ep=times.length?times[i]:0;if(ep&&ep<=r.ep)continue;if(ep)r.ep=ep;brAdd(r,dig(prices[i],dec))}}
+function brTick(sym,p,ep,dec){var r=brRec(sym);if(ep&&ep<=r.ep)return;if(ep)r.ep=ep;brAdd(r,dig(p,dec))}
+function brBoot(m){var r=BRAIN[m.sym];if(r&&r.d.length>=BR_MIN)return;
+  hist(m.sym,1000).then(function(h){brFeed(m.sym,h.times,h.prices,h.pip);brUI()}).catch(function(){})}
+function brCheck(sym,ci,s,br){var r=BRAIN[sym],D=r?r.d.split('').map(Number):[],n=D.length,k=0,p,z;
+  if(n<BR_MIN)return{ok:false,learning:true,n:n,t:'Brain is still learning this market ('+n+' of '+BR_MIN+' ticks stored), so no trade yet.'};
+  if(ci===1)return{ok:true,n:n,t:n+' ticks stored'};
+  D.forEach(function(v){if(ci===0?(s==='a'?v%2===0:v%2===1):ci===2?(s==='a'?v>br:v<br):(s==='a'?v===br:v!==br))k++});
+  p=ci===0?.5:ci===2?(s==='a'?(9-br)/10:br/10):(s==='a'?.1:.9);
+  z=(p>0&&p<1)?zs(k,n,p):0;
+  return z>=BR_Z?{ok:true,n:n,z:z,t:'over '+n+' stored ticks the same side leads (z '+z.toFixed(1)+')'}
+    :{ok:false,n:n,z:z,t:'Over '+n+' stored ticks that bias is not there (z '+z.toFixed(1)+', needs '+BR_Z+'+), so it looks like a short-term fluke.'}}
+function brGate(m,ci,br,r){if(!r||!r.go)return r;var b=(ci===3&&r.br!=null)?r.br:br,c=brCheck(m.sym,ci,r.s,b);r.brain=c;
+  if(!c.ok){r.go=false;r.t+=' '+c.t;return r}
+  var v=BRV[m.name+'|'+ci];
+  if(v&&v[0]>=30&&v[1]/v[0]*100<v[2]/v[0]-3){r.go=false;r.t+=' Practice trades here win less than break-even, so the brain skips it.';return r}
+  r.t+=' Brain agrees: '+c.t+'.';return r}
+function brUI(){var el=$('brL');if(!el)return;var ks=Object.keys(BRAIN),t=0,rdy=0,nm={};
+  ks.forEach(function(k){var n=BRAIN[k].d.length;t+=n;if(n>=BR_MIN)rdy++});
+  $('brT').textContent=t.toLocaleString('en-US');$('brM').textContent=ks.length;$('brR').textContent=rdy;
+  S.MK.forEach(function(m){nm[m.sym]=m.sn||m.name});
+  el.innerHTML=ks.sort(function(a,b){return BRAIN[b].d.length-BRAIN[a].d.length}).slice(0,8).map(function(k){
+    var n=BRAIN[k].d.length;return '<div class="br"><span>'+esc(nm[k]||k)+'</span><i><u style="width:'+Math.min(100,n/BR_MIN*100)+'%"></u></i><em>'+n+'</em></div>'}).join('')
+    ||'<div class="empty">Nothing stored yet. It fills itself while you use the app.</div>'}
+$('brX').onclick=function(){if(!confirm('Erase everything the brain has learned on this device?'))return;
+  BRAIN={};BRV={};brDirty=false;try{localStorage.removeItem(BR_KEY)}catch(e){}brUI();log('Brain cleared.')};
+/* keeps learning every market in the background, one at a time */
+setInterval(function(){if(!S.token||!S.MK.length||brLearnBusy||document.hidden||!wsOK)return;
+  var m=S.MK[brLearnI++%S.MK.length];if(!m||m===S.SEL)return;brLearnBusy=true;
+  hist(m.sym,500).then(function(h){brFeed(m.sym,h.times,h.prices,h.pip)}).catch(function(){}).then(function(){brLearnBusy=false})},12000);
+setInterval(function(){brSave();if($('app').getAttribute('data-m')==='bot')brUI()},5000);
+window.addEventListener('pagehide',brSave);
+/* monitor mode: same decisions as the live bot, but only practice trades are recorded */
+function sbLbl(){return MON.on?'Start monitor':'Connect bot'}
+function monWin(pn,p,dec){var d=dig(p,dec),s=pn.s;
+  if(pn.ci===0)return s==='a'?d%2===0:d%2===1;
+  if(pn.ci===1)return s==='a'?p>pn.entry:p<pn.entry;
+  if(pn.ci===2)return s==='a'?d>pn.br:d<pn.br;
+  return s==='a'?d===pn.br:d!==pn.br}
+function monTick(m,p){var pn=MON.pend;if(!pn)return;if(pn.entry==null)pn.entry=p;pn.left--;if(pn.left>0)return;
+  MON.pend=null;var win=monWin(pn,p,m.dec),mu=mult(pn.ci,pn.s,pn.br),pl=win?pn.stake*(mu-1):-pn.stake,be=mu?100/mu:0,k=pn.mn+'|'+pn.ci,r=BRV[k]||(BRV[k]=[0,0,0]);
+  r[0]++;if(win)r[1]++;r[2]+=be;if(r[0]>200){r[0]=Math.round(r[0]/2);r[1]=Math.round(r[1]/2);r[2]=r[2]/2}brDirty=true;
+  MON.n++;if(win)MON.w++;MON.pl+=pl;BOT.wait=Date.now()+(win?1500:6000);
+  log('Monitor '+(win?'WIN +':'LOSS ')+f(pl)+' '+S.cur+' (practice) · '+pn.mn+' · digit '+dig(p,m.dec));monUI()}
+function monStep(m){
+  if(MON.pend||Date.now()<BOT.wait)return;
+  if(SW.auto){var vv=volOf(m);if(vv&&(vv.st==='spike'||vv.st==='flat')){if(Date.now()-(BOT.vt||0)>30000){BOT.vt=Date.now();log('Monitor · '+m.name+' is '+(vv.st==='spike'?'spiking':'frozen')+'. Looking for a steadier market…');rescan()}return}}
+  if(BOT.since>=8||Date.now()-BOT.scanT>120000){rescan();return}
+  var g=sig(m,BOT.ci,BOT.br),bn=BRAIN[m.sym]?BRAIN[m.sym].d.length:0;
+  if(!g.go){var why=bn<BR_MIN?'brain learning ('+bn+' of '+BR_MIN+' ticks)':'signal '+Math.round(g.e)+' of '+minSig()+' needed';
+    $('bsub').textContent='Monitoring '+m.name+' · '+why+'.';
+    if(Date.now()-(BOT.wl||0)>30000){BOT.wl=Date.now();log('Monitor · '+m.name+': '+why+'.')}return}
+  var br=BOT.ci===3?(g.br!=null?g.br:BOT.br):BOT.br,stake=Math.max(.35,num('aS',.5));
+  MON.pend={m:m,mn:m.name,ci:BOT.ci,s:g.s,br:br,stake:stake,left:BOT.ci===1?5:1,entry:null};BOT.wait=Date.now()+4000;BOT.since++;
+  $('bsub').textContent='Practice trade on '+m.name+': '+lbl(BOT.ci,g.s,br).toUpperCase()+'. Waiting for the result.';
+  log('Monitor · '+m.name+': would trade '+lbl(BOT.ci,g.s,br).toUpperCase()+' (signal '+Math.round(g.e)+'). No order sent.')}
+function monUI(){var b=$('monb');if(!b)return;b.classList.toggle('hid',!MON.on&&!MON.n);
+  $('mnN').textContent=MON.n;$('mnW').textContent=MON.n?Math.round(MON.w/MON.n*100)+'%':'—';
+  var e=$('mnP');e.textContent=(MON.pl>=0?'+':'')+f(MON.pl);e.className=MON.pl>=0?'up':'dn'}
+function monPaint(){var b=$('msw');b.classList.toggle('on',MON.on);b.setAttribute('aria-checked',MON.on?'true':'false');
+  $('msws').textContent=MON.on?'On. The bot watches and practises. No orders are sent, not even on demo.':'Off. The bot places orders when it sees a setup.';
+  if(!BOT.on&&!BOT.busy)$('sb').textContent=sbLbl();monUI()}
+$('msw').onclick=function(){if(BOT.on||BOT.busy){flash('Stop the bot first, then switch mode.','lw');return}
+  MON.on=!MON.on;try{localStorage.setItem('sx_mon',MON.on?'1':'0')}catch(e){}monPaint();
+  log(MON.on?'Monitor mode on. The next run only watches and practises.':'Monitor mode off. The next run places orders.')};
+each(document.querySelectorAll('.fine'),function(e){e.onclick=function(){e.classList.toggle('open')}});
+brLoad();brUI();monPaint();
+
 var RING=2*Math.PI*42,R=[],SG=null,last=null;
 var view='dig',cds=[],cur={o:0,h:0,l:0,c:0,i:0,n:0},cidx=0,mk=[],TPC=4,VIS=40,price=0;
 var CT=[{a:'Even',b:'Odd'},{a:'Rise',b:'Fall'},{a:'Over',b:'Under',br:1},{a:'Matches',b:'Differs',br:1}];
@@ -523,10 +646,11 @@ function hist(sym,count){
       return{prices:r.d.prices,times:r.d.times||[],pip:normPip(r.d.pip,r.d.prices)}})});
 }
 function dig(p,dec){return +p.toFixed(dec).slice(-1)}
-function load(m,h){m.dec=h.pip;m.h=h.prices.slice(-500);m.d=m.h.map(function(p){return dig(p,m.dec)});m.ep=h.times.length?h.times[h.times.length-1]:0;m.ok=true;m.ts=Date.now()}
+function load(m,h){m.dec=h.pip;m.h=h.prices.slice(-500);m.d=m.h.map(function(p){return dig(p,m.dec)});m.ep=h.times.length?h.times[h.times.length-1]:0;m.ok=true;m.ts=Date.now();brFeed(m.sym,h.times,h.prices,h.pip)}
 function addTick(m,p,ep){
   if(ep&&ep<=m.ep)return;if(ep)m.ep=ep;
   m.h.push(p);m.d.push(dig(p,m.dec));if(m.h.length>500){m.h.shift();m.d.shift()}
+  brTick(m.sym,p,ep,m.dec);if(MON.pend&&MON.pend.m===m)monTick(m,p);
   lastTickAt=Date.now();
   if(m!==S.SEL)return;
   price=p;$('tick').textContent=p.toFixed(m.dec);pushC();render();scan1();
@@ -574,7 +698,8 @@ function trendSeries(P){var n=P.length,e=emaA(P,21),f=emaA(P,12),w=emaA(P,26),ml
 function perfLoad(){try{return JSON.parse(localStorage.getItem('sx_perf_'+S.acct)||'{}')}catch(e){return{}}}
 function perfAdd(mn,ci,won,be){try{var o=perfLoad(),k=mn+'|'+ci,r=o[k]||[0,0,0];r[0]++;if(won)r[1]++;r[2]+=be;if(r[0]>200){r[0]=Math.round(r[0]/2);r[1]=Math.round(r[1]/2);r[2]/=2}o[k]=r;localStorage.setItem('sx_perf_'+S.acct,JSON.stringify(o))}catch(e){}}
 function perfBad(m,ci){var r=perfLoad()[m.name+'|'+ci];return !!r&&r[0]>=20&&r[1]/r[0]*100<r[2]/r[0]-5}
-function sig(m,ci,br){var D=m.d.slice(-200),n=D.length;
+function sig(m,ci,br){return brGate(m,ci,br,sigRaw(m,ci,br))}
+function sigRaw(m,ci,br){var D=m.d.slice(-200),n=D.length;
  if(n<60)return{s:'a',e:0,go:false,t:'Collecting ticks…'};
  var X=chi(D),fair=X.x<16.9,r={s:'a',e:0,x:X.x},z,rec=true;
  if(ci===1){var u=0,H=m.h.slice(-201),q=H.length-1;for(var i=1;i<H.length;i++)if(H[i]>H[i-1])u++;z=zs(u,q,.5);r.s=z>=0?'a':'b';r.e=Math.min(100,Math.abs(z)/4*100);
@@ -901,14 +1026,14 @@ function scanMarkets(onStep){
   return Promise.all(all).then(function(){res.sort(function(x,y){return y.k-x.k});return res})}
 function goto(m){if(m!==S.SEL)pick(m)}
 function run(t){BOT.on=true;BOT.streak=0;BOT.lvl=0;BOT.peak=Math.max(0,S.sess);BOT.wait=0;target(t);goto(t.m);
- $('sb').textContent='Stop bot';$('sb').classList.add('stop');$('sb').disabled=false;$('st').textContent='Active';$('st').classList.add('on');
- log('Bot connected · '+tname(t)+volTag(t)+(SW.auto?' · auto-switch on':' · manual market')+'. Stake '+f(num('aS',.5))+', martingale x'+num('aM',1)+'. It now trades by itself.');
+ $('sb').textContent=MON.on?'Stop monitor':'Stop bot';$('sb').classList.add('stop');$('sb').disabled=false;$('st').textContent=MON.on?'Monitoring':'Active';$('st').classList.add('on');
+ log((MON.on?'Monitor mode started (no orders)':'Bot connected')+' · '+tname(t)+volTag(t)+(SW.auto?' · auto-switch on':' · manual market')+'. Stake '+f(num('aS',.5))+', martingale x'+num('aM',1)+(MON.on?'. It only watches and practises.':'. It now trades by itself.'));
  if(t.m.ok)autoStep(t.m)}
 function scanAll(){
   if(BOT.busy||BOT.on)return;
   if(num('lT',50)<num('lL',50)*2)$('lT').value=Math.round(num('lL',50)*2*100)/100;
   if(num('lT',50)<num('lL',50)){flash('Take profit must be at least your stop loss, so a bad run ends smaller than a good one.','lw');return}
-  if(!S.demo&&!confirm('REAL ACCOUNT: the bot will place real-money trades on '+S.acct+'. It can lose money. Your take profit, stop loss and daily loss cap stay on. Start it?'))return;
+  if(!MON.on&&!S.demo&&!confirm('REAL ACCOUNT: the bot will place real-money trades on '+S.acct+'. It can lose money. Your take profit, stop loss and daily loss cap stay on. Start it?'))return;
   if(!SW.auto&&(!S.SEL||!S.SEL.ok)){flash('Pick a market and wait for its ticks first.','lw');return}
   if(S.sess<=-num('lL',10)||num('lL',10)<=0){flash('Set your stop loss first.','lw');return}
   BOT.busy=true;$('scr').classList.remove('hid');$('sb').textContent='Scanning…';$('sb').disabled=true;$('st').textContent='Scanning';$('bsub').textContent=SW.auto?'Scanning volatility and setups on every market…':'Checking '+S.SEL.name+' and its contracts…';
@@ -919,12 +1044,13 @@ function scanAll(){
     log('Scan complete · '+(SW.auto?'strongest steady setup: ':'your market: ')+tname(res[0])+' · '+lbl(res[0].ci,res[0].s,res[0].br).toUpperCase()+' ('+Math.round(res[0].e)+')'+volTag(res[0])+'.');
     $('bsub').textContent='Locking on to '+tname(res[0]);
     setTimeout(function(){BOT.busy=false;run(res[0])},900)})}
-function stopBot(why){var was=BOT.on;BOT.on=false;BOT.busy=false;$('sb').textContent='Connect bot';$('sb').classList.remove('stop');$('sb').disabled=false;$('st').textContent='Idle';$('st').classList.remove('on');$('bsub').textContent='Press connect and the bot does the rest';if(was&&why)log('Bot stopped: '+why)}
+function stopBot(why){MON.pend=null;var was=BOT.on;BOT.on=false;BOT.busy=false;$('sb').textContent=sbLbl();$('sb').classList.remove('stop');$('sb').disabled=false;$('st').textContent='Idle';$('st').classList.remove('on');$('bsub').textContent='Press connect and the bot does the rest';if(was&&why)log('Bot stopped: '+why)}
 function rescan(){if(BOT.busy)return;BOT.busy=true;BOT.since=0;log(SW.auto?'Re-scanning volatility and setups…':'Re-checking contracts on '+BOT.m.name+'…');
   (SW.auto?scanMarkets():scanOne(BOT.m)).then(function(res){BOT.busy=false;if(!BOT.on||!res.length)return;var t=res[0],moved=t.m!==BOT.m||t.ci!==BOT.ci||t.br!==BOT.br;
     target(t);if(moved){goto(t.m);log('Re-scan · moving to '+tname(t)+' · '+lbl(t.ci,t.s,t.br).toUpperCase()+'.')}else log('Re-scan · staying on '+tname(t)+'.');paintScan(res,true)})}
 function autoStep(m){
   if(!BOT.on||BOT.busy||S.sending||m!==BOT.m||!m.ok)return;
+  if(MON.on)return monStep(m);
   var w=lim();if(w){stopBot(w+'.');return}
   BOT.peak=Math.max(BOT.peak||0,S.sess);
   if(BOT.peak>=num('lT',50)*.6&&S.sess<=BOT.peak*.5){stopBot('profit lock. The session gave back half of its best gain ('+f(BOT.peak)+' to '+f(S.sess)+' '+S.cur+').');return}
@@ -939,7 +1065,7 @@ function autoStep(m){
   if(perfBad(m,BOT.ci)){if(SW.auto){if(Date.now()-(BOT.pl||0)>20000){BOT.pl=Date.now();log('Your live win rate on '+m.name+' is below break-even after 20+ trades. Looking elsewhere…');rescan()}return}stopBot('your live win rate on '+m.name+' is below break-even after 20+ trades.');return}
   var g=sig(m,BOT.ci,BOT.br),base=num('aS',.5),stake=Math.round(base*Math.pow(Math.max(1,num('aM',1)),BOT.lvl||0)*100)/100,ceil=Math.max(base,S.bal*.02);
   if((BOT.lvl||0)>0&&stake>ceil+1e-9){log('Stake chain cut: '+f(stake)+' is above 2% of your balance. Back to the base stake '+f(base)+'.');BOT.lvl=0;stake=base}
-  if(!g.go){$('bsub').textContent='Watching '+m.name+' · '+(BOT.ci===0?'Even/Odd':BOT.ci===1?'Rise/Fall':'Over/Under')+' · signal '+Math.round(g.e)+' of '+minSig()+' needed. Waiting for a stronger setup.';if(Date.now()-(BOT.wl||0)>30000){BOT.wl=Date.now();log('Waiting · '+m.name+': signal '+Math.round(g.e)+' (needs '+minSig()+'+ and uneven digits).')}return}
+  if(!g.go){$('bsub').textContent='Watching '+m.name+' · '+(BOT.ci===0?'Even/Odd':BOT.ci===1?'Rise/Fall':'Over/Under')+' · signal '+Math.round(g.e)+' of '+minSig()+' needed. Waiting for a stronger setup.';if(Date.now()-(BOT.wl||0)>30000){BOT.wl=Date.now();log('Waiting · '+m.name+': signal '+Math.round(g.e)+' (needs '+minSig()+'+ and uneven digits).'+(g.brain&&!g.brain.ok?' '+g.brain.t:''))}return}
   if(stake>S.bal){stopBot('not enough balance for the next stake.');return}
   if(stake>S.maxStake){stopBot('next stake '+f(stake)+' is above the server limit MAX_STAKE '+S.maxStake+'.');return}
   if(DAY.base>0&&pendRisk()+stake>capLeft()+1e-9){stopBot('next stake would risk more than your daily loss cap.');return}
@@ -978,7 +1104,7 @@ function pick(m){
   ready.then(function(){if(seq!==S.pickSeq)return;
     price=m.h[m.h.length-1];lastTickAt=Date.now();
     $('mg').textContent=m.g+' · live ticks';$('tick').textContent=price.toFixed(m.dec);
-    rebuild(m);paintBd();render();scan1();subscribe(m.sym);if(view==='chart')drawC();
+    rebuild(m);paintBd();render();scan1();subscribe(m.sym);if(view==='chart')drawC();brBoot(m);
     if(BOT.on&&BOT.m===m)autoStep(m)
   }).catch(function(e){if(seq!==S.pickSeq)return;$('mg').textContent='Could not load ticks';flash('Market data: '+(e&&e.message||'unavailable'))});
 }
