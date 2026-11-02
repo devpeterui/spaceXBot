@@ -374,7 +374,7 @@ body{overscroll-behavior-y:none}
     <div class="asw"><div><b id="mswl">Monitor mode</b><small id="msws"></small></div><button type="button" class="swt" id="msw" role="switch" aria-checked="false" aria-labelledby="mswl"><i></i></button></div>
     <div class="sg hid" id="monb"><div><small>Practice trades</small><b id="mnN">0</b></div><div><small>Win rate</small><b id="mnW">—</b></div><div><small>Practice P/L</small><b id="mnP">0.00</b></div></div>
     <div class="scr hid" id="scr"></div>
-    <div class="inp" style="grid-template-columns:1fr"><div><label for="aS">Stake</label><input id="aS" type="number" value="0.5" min="0.35" step="0.05"></div></div>
+    <div class="inp" style="grid-template-columns:1fr 1fr"><div><label for="aS">Stake</label><input id="aS" type="number" value="0.5" min="0.35" step="0.05"></div><div><label for="aSp">Seconds between trades (0 = auto)</label><input id="aSp" type="number" value="2" min="0" max="30" step="1"></div></div>
     <div style="display:none"><input id="aN" type="number" value="1"><input id="aM" type="number" value="1"><input id="aG" type="number" value="75"><input id="aX" type="number" value="3"></div>
     <div class="fine"><b>You set the stake and the stop loss (Limits card). The bot does the rest:</b> it reads the recent ticks of every market, picks the market and contract, chooses the number of ticks (1 for digits, 5 for rise/fall), keeps the signal bar at 75, stays at a flat stake with no martingale, stops after 3 losses in a row, and sets take profit to twice your stop loss. It remembers its own results per market and skips setups that keep losing. The bot only trades when a market's digits are provably uneven (chi-square test) and the signal is strong enough, otherwise it waits. It follows a proven bias, never a "due" streak. It stops at your take profit, stop loss, loss streak or max trades. Take profit must be at least your stop loss. No setup is guaranteed: each win pays about 95% of the stake, so a market with no real bias loses slowly. Auto-switch measures how far each market's ticks move and whether that just jumped. It moves the bot to the strongest steady setup and pauses on a spike or a frozen feed. Switch it off to keep the bot on the market you picked. It chooses where to trade, it does not improve the odds.</div>
    </div>
@@ -543,6 +543,7 @@ function startArmed(){var t=BOT.armed;BOT.armed=null;if(!t)return;
   if(!(num('aS',0)>=.35)){flash('Set your stake first (at least 0.35).','lw');BOT.armed=t;return}
   if(num('lL',0)<=0){flash('Set your stop loss first.','lw');BOT.armed=t;return}
   var pl=planFor(t);log('Plan · '+pl.t+'.');run(t)}
+function spd(){var v=num('aSp',2);if(!(v>0))return Math.max(2,BOT.tks||1)*1000;return Math.max(1,Math.min(30,v))*1000}
 function sbLbl(){return MON.on?'Start monitor':'Connect bot'}
 function monWin(pn,p,dec){var d=dig(p,dec),s=pn.s;
   if(pn.ci===0)return s==='a'?d%2===0:d%2===1;
@@ -552,7 +553,7 @@ function monWin(pn,p,dec){var d=dig(p,dec),s=pn.s;
 function monTick(m,p){var pn=MON.pend;if(!pn)return;if(pn.entry==null)pn.entry=p;pn.left--;if(pn.left>0)return;
   MON.pend=null;var win=monWin(pn,p,m.dec),mu=mult(pn.ci,pn.s,pn.br),pl=win?pn.stake*(mu-1):-pn.stake,be=mu?100/mu:0,k=pn.mn+'|'+pn.ci,r=BRV[k]||(BRV[k]=[0,0,0]);
   r[0]++;if(win)r[1]++;r[2]+=be;if(r[0]>200){r[0]=Math.round(r[0]/2);r[1]=Math.round(r[1]/2);r[2]=r[2]/2}brDirty=true;
-  MON.n++;if(win)MON.w++;MON.pl+=pl;BOT.wait=Date.now()+(win?1500:6000);
+  MON.n++;if(win)MON.w++;MON.pl+=pl;BOT.wait=Date.now()+(win?spd():Math.max(4000,spd()*2));
   log('Monitor '+(win?'WIN +':'LOSS ')+f(pl)+' '+S.cur+' (practice) · '+pn.mn+' · digit '+dig(p,m.dec));monUI()}
 function monStep(m){
   if(MON.pend||Date.now()<BOT.wait)return;
@@ -563,7 +564,7 @@ function monStep(m){
     $('bsub').textContent='Monitoring '+m.name+' · '+why+'.';
     if(Date.now()-(BOT.wl||0)>30000){BOT.wl=Date.now();log('Monitor · '+m.name+': '+why+'.')}return}
   var br=BOT.ci===3?(g.br!=null?g.br:BOT.br):BOT.br,stake=Math.max(.35,num('aS',.5));
-  MON.pend={m:m,mn:m.name,ci:BOT.ci,s:g.s,br:br,stake:stake,left:BOT.ci===1?5:1,entry:null};BOT.wait=Date.now()+4000;BOT.since++;
+  MON.pend={m:m,mn:m.name,ci:BOT.ci,s:g.s,br:br,stake:stake,left:BOT.ci===1?5:1,entry:null};BOT.wait=Date.now()+spd();BOT.since++;
   $('bsub').textContent='Practice trade on '+m.name+': '+lbl(BOT.ci,g.s,br).toUpperCase()+'. Waiting for the result.';
   log('Monitor · '+m.name+': would trade '+lbl(BOT.ci,g.s,br).toUpperCase()+' (signal '+Math.round(g.e)+'). No order sent.')}
 function monUI(){var b=$('monb');if(!b)return;b.classList.toggle('hid',!MON.on&&!MON.n);
@@ -1005,7 +1006,7 @@ function settle(p,x){
   S.trades.unshift(tr);last=tr;perfAdd(tr.mn,tr.ci,tr.won,tr.be);if(S.demo)demoAdd(tr);
   if(p.m===S.SEL)mk.push({i:cur.i,p:price,k:'out',won:win,pl:pl});
   log((win?'WIN +':'LOSS ')+f(pl)+' '+S.cur+' · '+p.mn+(x.digit!=null?' · digit '+x.digit:''));
-  if(p.src==='Auto'){BOT.streak=win?0:BOT.streak+1;BOT.lvl=win?0:(BOT.lvl||0)+1;BOT.wait=Date.now()+(win?1500:6000)}
+  if(p.src==='Auto'){BOT.streak=win?0:BOT.streak+1;BOT.lvl=win?0:(BOT.lvl||0)+1;BOT.wait=Date.now()+(win?spd():Math.max(4000,spd()*2))}
 }
 function pollResults(){
   if(polled||!S.pend.length||!S.token)return;
@@ -1021,7 +1022,7 @@ function pollResults(){
       return true});
     if(done){refreshBalance();ui();if(BOT.on&&BOT.m===S.SEL)autoStep(BOT.m)}});
 }
-setInterval(pollResults,2500);
+setInterval(pollResults,1500);
 
 function refreshBalance(){if(!S.token)return;api('/account').then(function(r){
   if(r.status===401){expired();return}
@@ -1116,7 +1117,7 @@ function autoStep(m){
   if(DAY.base>0&&pendRisk()+stake*nb>capLeft()+1e-9){stopBot('next stake would risk more than your daily loss cap.');return}
   if(stake>num('lL',50)+S.sess){stopBot('next stake '+f(stake)+' would break your stop loss.');return}
   var br=BOT.ci===3?(g.br!=null?g.br:BOT.br):BOT.br;
-  BOT.wait=Date.now()+4000;BOT.since++;$('bsub').textContent='Trade placed on '+m.name+': '+lbl(BOT.ci,g.s,br).toUpperCase()+' · stake '+f(stake)+' '+S.cur+'. Waiting for the result.';
+  BOT.wait=Date.now()+spd();BOT.since++;$('bsub').textContent='Trade placed on '+m.name+': '+lbl(BOT.ci,g.s,br).toUpperCase()+' · stake '+f(stake)+' '+S.cur+'. Waiting for the result.';
   log('Scanner · '+m.name+': '+lbl(BOT.ci,g.s,br).toUpperCase()+' (signal '+Math.round(g.e)+') · '+tk+' tick'+(tk>1?'s':'')+' x'+nb);
   place(m,BOT.ci,g.s,br,stake,nb,tk,'Auto').then(function(r){
     if(r.ok)return;
