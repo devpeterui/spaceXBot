@@ -1,5 +1,5 @@
 // Caches only the app shell. Account, trade and chat calls are never cached.
-const CACHE = 'spacex-bulk-v1';
+const CACHE = 'spacex-bulk-v2';
 const SHELL = ['/', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', e => {

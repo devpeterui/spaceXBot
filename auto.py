@@ -6,7 +6,7 @@ it does for the manual buttons.
 
 Routes (need a logged-in Deriv session):
   GET  /auto/status   mode, settings, counters, recent log
-  POST /auto/start    switch to AUTO (demo accounts only)
+  POST /auto/start    switch to AUTO (demo or real; the same server limits apply)
   POST /auto/stop     switch back to MANUAL
   GET  /auto.js       the front-end panel
 """
@@ -243,8 +243,6 @@ def register(core):
             acct = broker.get_account()
         except core.BrokerError as e:
             return jsonify({"status": "error", "message": e.message}), e.http
-        if not acct["demo"]:
-            return jsonify({"status": "error", "message": "AUTO mode is demo-only. Use a demo account."}), 403
         problem = broker.size_error(cfg["volume"])
         if problem:
             return jsonify({"status": "error", "message": problem}), 403

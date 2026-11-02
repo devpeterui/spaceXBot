@@ -2,7 +2,7 @@
 
 Additive, like extras.py / derivs.py / auto.py. If this file fails to import, the
 rest of the bot keeps working. Nothing here needs a paid key: it only uses your
-free Deriv demo token and Deriv's public market-data socket.
+Deriv token and Deriv's public market-data socket.
 
 Routes (all need a logged-in Deriv session):
   GET  /bulk/config    limits the page should respect

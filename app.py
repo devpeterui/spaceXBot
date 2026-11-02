@@ -67,14 +67,14 @@ METAAPI_REGION = env_str("METAAPI_REGION", "new-york")
 # Deriv
 DERIV_TOKEN = env_str("DERIV_TOKEN")
 DERIV_APP_ID = env_str("DERIV_APP_ID")
-DERIV_ACCOUNT_ID = env_str("DERIV_ACCOUNT_ID")  # optional, else first active demo account
+DERIV_ACCOUNT_ID = env_str("DERIV_ACCOUNT_ID")  # optional default account; the page can switch between your demo and real accounts
 # Binance
 BINANCE_API_KEY = env_str("BINANCE_API_KEY")
 BINANCE_API_SECRET = env_str("BINANCE_API_SECRET")
 BINANCE_ENV = env_str("BINANCE_ENV", "testnet").lower()  # testnet | live
 
 # Safety limits
-ALLOW_LIVE = env_bool("ALLOW_LIVE", False)
+ALLOW_LIVE = env_bool("ALLOW_LIVE", True)   # real accounts allowed; the loss caps below still apply to them
 MAX_LOT = env_float("MAX_LOT", 0.10)               # metaapi: lots per order
 MAX_STAKE = env_float("MAX_STAKE", 1)               # deriv: stake per contract
 MAX_ORDER_USDT = env_float("MAX_ORDER_USDT", 100)    # binance: order value in USDT
@@ -204,7 +204,7 @@ class MetaApi:
 
 class Deriv:
     id = "deriv"
-    label = "Deriv options (free demo)"
+    label = "Deriv options"
     size_label = "Stake"
     default_symbol = "1HZ100V"
     buy_label, sell_label = "RISE", "FALL"
@@ -231,15 +231,22 @@ class Deriv:
 
     def _pick(self):
         accounts = [a for a in self._accounts() if a.get("status", "active") == "active"]
+        chosen = _chosen_account_id()          # picked in the page for this login session
+        if chosen:
+            for a in accounts:
+                if a.get("account_id") == chosen:
+                    return a
         if DERIV_ACCOUNT_ID:
             for a in accounts:
                 if a.get("account_id") == DERIV_ACCOUNT_ID:
                     return a
             raise BrokerError("DERIV_ACCOUNT_ID was not found among your active Deriv accounts.", 503)
-        for a in accounts:
+        for a in accounts:                      # default: demo first, so a fresh login starts on the safe side
             if a.get("account_type") == "demo":
                 return a
-        raise BrokerError("No active Deriv demo account found.", 503)
+        if accounts:
+            return accounts[0]
+        raise BrokerError("No active Deriv account found.", 503)
 
     def get_account(self):
         a = self._pick()
@@ -432,6 +439,19 @@ def enabled_brokers():
 _lock = threading.Lock()
 _sessions = {}        # token -> (expiry, broker id)
 _failed_logins = {}   # ip -> [timestamps]
+_acct_choice = {}     # session token -> Deriv account id picked in the page
+
+
+def _chosen_account_id():
+    """Account the logged-in page picked (demo or real). None outside a request."""
+    try:
+        header = request.headers.get("Authorization", "")
+    except RuntimeError:
+        return None
+    if not header.startswith("Bearer "):
+        return None
+    with _lock:
+        return _acct_choice.get(header[7:].strip())
 _baseline = {}        # (broker id, "YYYY-MM-DD") -> equity at first read of that day
 
 
@@ -484,7 +504,7 @@ def public_account(a):
 def check_rules(broker, symbol, size, side, account):
     """Return (error_or_None, quote_price_or_None)."""
     if not account["demo"] and not ALLOW_LIVE:
-        return "Live account blocked. Set ALLOW_LIVE=true on Render to allow it.", None
+        return "Real accounts are switched off on this server (ALLOW_LIVE=false).", None
     problem = broker.size_error(size)
     if problem:
         return problem, None
@@ -495,9 +515,10 @@ def check_rules(broker, symbol, size, side, account):
     if not (TRADE_START_HOUR <= now.hour < TRADE_END_HOUR):
         return f"Outside trading hours ({TRADE_START_HOUR}:00 to {TRADE_END_HOUR}:00 {TIMEZONE}).", None
 
-    key = (broker.id, now.strftime("%Y-%m-%d"))
+    login_id = str(account.get("login", ""))
+    key = (broker.id, login_id, now.strftime("%Y-%m-%d"))
     with _lock:
-        for old in [k for k in _baseline if k != key and k[0] == broker.id]:
+        for old in [k for k in _baseline if k != key and k[0] == broker.id and k[1] == login_id]:
             del _baseline[old]
         start_equity = _baseline.setdefault(key, account["equity"])
     change = account["equity"] - start_equity
@@ -597,6 +618,7 @@ def logout():
     if token:
         with _lock:
             _sessions.pop(token, None)
+            _acct_choice.pop(token, None)
     return jsonify({"status": "success"})
 
 
@@ -605,6 +627,56 @@ def account():
     _, broker = current_session()
     if not broker:
         return denied_response()
+    try:
+        return jsonify({"status": "success", "account": public_account(broker.get_account())})
+    except BrokerError as e:
+        return jsonify({"status": "error", "message": e.message}), e.http
+
+
+@app.get("/deriv/accounts")
+def deriv_accounts():
+    """Every active account behind your Deriv token (demo and real) so the page can switch."""
+    _, broker = current_session()
+    if not broker:
+        return denied_response()
+    if broker.id != "deriv":
+        return jsonify({"status": "success", "accounts": [], "current": ""})
+    try:
+        rows = [a for a in broker._accounts() if a.get("status", "active") == "active"]
+        current = str(broker.get_account().get("login", ""))
+    except BrokerError as e:
+        return jsonify({"status": "error", "message": e.message}), e.http
+    out = []
+    for a in rows:
+        if a.get("account_type") != "demo" and not ALLOW_LIVE:
+            continue
+        out.append({"id": a.get("account_id"), "type": a.get("account_type"),
+                    "balance": float(a.get("balance", 0) or 0), "currency": a.get("currency", "")})
+    return jsonify({"status": "success", "accounts": out, "current": current})
+
+
+@app.post("/deriv/select")
+def deriv_select():
+    """Switch this login session to another of your Deriv accounts (demo or real)."""
+    token, broker = current_session()
+    if not broker:
+        return denied_response()
+    if broker.id != "deriv":
+        return jsonify({"status": "error", "message": "Account switching is for Deriv."}), 400
+    wanted = str((request.get_json(silent=True) or {}).get("account_id", "")).strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", wanted):
+        return jsonify({"status": "error", "message": "Invalid account."}), 400
+    try:
+        rows = [a for a in broker._accounts() if a.get("status", "active") == "active"]
+    except BrokerError as e:
+        return jsonify({"status": "error", "message": e.message}), e.http
+    match = next((a for a in rows if a.get("account_id") == wanted), None)
+    if not match:
+        return jsonify({"status": "error", "message": "That account is not active on your Deriv token."}), 404
+    if match.get("account_type") != "demo" and not ALLOW_LIVE:
+        return jsonify({"status": "error", "message": "Real accounts are switched off (ALLOW_LIVE=false)."}), 403
+    with _lock:
+        _acct_choice[token] = wanted
     try:
         return jsonify({"status": "success", "account": public_account(broker.get_account())})
     except BrokerError as e:

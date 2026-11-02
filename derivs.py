@@ -1,7 +1,7 @@
 """Phase 2: every Deriv contract type, plus AI contract choice for AUTO mode.
 
 Additive (like extras.py and auto.py). Everything goes through the same safety
-checks as the manual buttons (demo-only unless ALLOW_LIVE, MAX_STAKE, daily
+checks as the manual buttons (real accounts only if ALLOW_LIVE, MAX_STAKE, daily
 limits, trading hours).
 
 Routes (need a logged-in Deriv session):

@@ -1,15 +1,15 @@
 # SpaceX Bulk Trader
 
-One page, one market, zero cost. Digit and rise/fall trading on your **free Deriv demo account**, with bulk orders, a built-in scanner and an auto bot.
+One page, one market, zero cost. Digit and rise/fall trading on your Deriv **demo or real account**, with bulk orders, a built-in scanner and an auto bot.
 
 | Needs | Cost |
 |---|---|
-| Deriv demo token + app id (developers.deriv.com) | free |
+| Deriv token + app id (developers.deriv.com). One token can reach your demo and real accounts | free |
 | Render free web service | free |
 | AI key | **not needed**. The scanner and bot run on built-in statistics |
 
 ## Files
-- `app.py`: server (login, account, safety rules). Unchanged core.
+- `app.py`: server (login, account, safety rules, demo/real account switching).
 - `bulk.py`: bulk orders, tick relay, real win/loss results (new).
 - `derivs.py`, `extras.py`, `auto.py`: contract builder, charts, server-side auto mode (still available, not used by the page).
 - `public/index.html`: the SpaceX Bulk Trader page. It is split into three tabs: Trade (market, digits/candles, scanner, limits), Auto bot (bot settings, limits) and Results. On desktop Results stays in the side column; on phones it is its own tab. `sw.js`, manifest and icons make it installable on a phone.
@@ -19,6 +19,16 @@ One page, one market, zero cost. Digit and rise/fall trading on your **free Deri
 - Markets tab: Run check (feed, account type, daily cap, backtest evidence, session stats) and a weekly brief built from Deriv's hourly candles for all markets. `bulk.py` serves `/bulk/candles` as a fallback when the browser cannot reach Deriv directly. No database is needed: Deriv keeps the week of history.
 - Stats tab (Results): your real win rate against break-even, a luck range, and results by market and contract.
 - `render.yaml`, `render.env.example`: Render settings and every variable.
+
+## What's new in this version
+- **Demo and real accounts.** `ALLOW_LIVE` now defaults to `true`. A fresh login starts on your demo account; if your token reaches more than one account, a small selector appears in the header to switch between demo and real. The DEMO / LIVE badge always shows which one is active. Starting the bot on a real account asks for confirmation first. Daily loss baselines are kept per account. Set `ALLOW_LIVE=false` any time to block real accounts again.
+- **Rise/Fall trend filter.** The bot only trades when the tick-direction signal agrees with price vs EMA(21), RSI(14) and the MACD(12,26,9) histogram.
+- **Digit recency check.** A digit skew over the last 200 ticks must still be present in the last 30 to 40 ticks, otherwise the bot waits.
+- **Capped stake chain.** The martingale never pushes a stake above 2% of balance (it resets to the base stake and logs it), and there is a 6 second cooldown after a loss.
+- **Profit lock.** After 60% of your take profit is reached, the bot stops if the session gives back half of its best gain.
+- **Adaptive filter.** After 20+ real trades on a market and contract below break-even by 5 points, the scanner skips it (or the bot stops, in manual-market mode).
+- **Backtest** now includes the trend-filter rule, so you can check it before trading.
+- **Settings and session profit survive a reload** (stored in your browser, per account).
 
 ## Deploy
 1. Push this folder to a **private** GitHub repo. Never commit real keys.
@@ -32,7 +42,7 @@ One page, one market, zero cost. Digit and rise/fall trading on your **free Deri
 - Limits (take profit, stop loss, max trades) are checked in the page. The server also enforces demo-only, `MAX_STAKE`, `MAX_BULK`, daily loss and trading hours.
 
 ## Safety
-- `ALLOW_LIVE=false` blocks every non-demo account. The bot is demo-only.
+- Real accounts are allowed by default (`ALLOW_LIVE=true`). Set `ALLOW_LIVE=false` to block them. Take profit, stop loss, the daily loss cap, `MAX_STAKE` and `MAX_BULK` apply to demo and real alike. Test on demo first.
 - `MAX_STAKE` caps each contract. `MAX_BULK` caps contracts per click (hard maximum 20).
 - Martingale defaults to x1 (off). Digits on synthetic markets are random: the scanner cannot give an edge, and raising stakes after losses raises risk.
 - Render's free server sleeps. Session counters and the daily-loss baseline reset when it restarts.

@@ -17,7 +17,7 @@ services:
       - key: MAX_BULK
         value: "5"
       - key: ALLOW_LIVE
-        value: "false"
+        value: "true"
       # Secrets: Render asks you to type these in the dashboard, they never live in Git.
       - key: ACCESS_CODE
         sync: false
