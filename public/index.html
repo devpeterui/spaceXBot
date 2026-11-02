@@ -633,7 +633,20 @@ function ui(){
  $('tb').innerHTML=wait+(S.trades.length?S.trades.slice(0,30).map(function(t){return '<div class="tx '+(t.won?'w':'l')+'"><div class="t">'+esc(t.label)+'<small style="display:block;font-weight:500;color:var(--mute);font-size:10px">'+esc(t.mn)+'</small></div><div>'+esc(fmt(t.entry,t.dec))+'<br>'+esc(fmt(t.exit,t.dec))+'</div><div class="p"><small>'+f(t.stake)+' '+esc(S.cur)+'</small><b class="'+(t.pl>=0?'up':'dn')+'">'+(t.pl>=0?'+':'')+f(t.pl)+' '+esc(S.cur)+'</b></div></div>'}).join(''):(wait?'':'<div class="empty">No transactions yet.</div>'));
  $('lm1').textContent='Session '+(S.sess>=0?'+':'')+f(S.sess)+' '+S.cur;$('lm2').textContent=S.nTr+' / '+num('lN',100)+' trades';
  $('lw').textContent=lim()||(S.nTr>=num('lN',100)?'Max trades reached':'');
- capUI();statsUI();bars()}
+ labelsUI();capUI();statsUI();bars();guideUI()}
+function setLbl(id,t){var e=document.querySelector('label[for="'+id+'"]');if(e&&e.textContent!==t)e.textContent=t}
+function labelsUI(){var c=S.cur||'USD';setLbl('sk','Stake ('+c+')');setLbl('aS','Stake ('+c+')');setLbl('lT','Take profit ('+c+')');setLbl('lL','Stop loss ('+c+')');
+ var a=$('lm1');if(a&&!a.getAttribute('data-x'))a.setAttribute('data-x','1');
+ var l=$('lw');if(l&&!l.textContent)l.textContent=''}
+/* suggested stake / stop loss from the balance, shown while the bot is idle */
+function suggest(){var b=S.bal||0;if(b<=0)return null;var st=Math.max(.35,Math.round(b*.01/.05)*.05),sl=Math.max(st*5,Math.round(b*.05*100)/100);return{st:st,sl:sl,tp:sl*2}}
+function guideUI(){if(BOT.on||BOT.busy)return;var g=suggest(),e=$('bsub');if(!g||!e)return;
+ var st=num('aS',.5),sl=num('lL',10),c=S.cur||'USD',msg;
+ if(st<.35)msg='Your stake is below the 0.35 '+c+' minimum. Set it, then connect.';
+ else if(sl<st*3)msg='Your stop loss ('+f(sl)+' '+c+') is less than 3 stakes. Raise it, for example to '+f(Math.max(st*5,g.sl))+' '+c+', then connect.';
+ else if(st>S.bal*.02+1e-9)msg='Your stake ('+f(st)+' '+c+') is above 2% of your balance. A safer stake is '+f(g.st)+' '+c+'.';
+ else msg='Ready. Stake '+f(st)+' '+c+', stops at -'+f(sl)+' '+c+', take profit +'+f(Math.max(num('lT',20),sl*2))+' '+c+'. Press connect.';
+ if(e.textContent!==msg)e.textContent=msg}
 
 /* ------------------------------------------------------------------ stats (real results of this session) */
 function statsUI(){var el=$('stx');if(!el)return;var T=S.trades,n=T.length;
@@ -897,6 +910,7 @@ function scanAll(){
   if(num('lT',50)<num('lL',50)){flash('Take profit must be at least your stop loss, so a bad run ends smaller than a good one.','lw');return}
   if(!S.demo&&!confirm('REAL ACCOUNT: the bot will place real-money trades on '+S.acct+'. It can lose money. Your take profit, stop loss and daily loss cap stay on. Start it?'))return;
   if(!SW.auto&&(!S.SEL||!S.SEL.ok)){flash('Pick a market and wait for its ticks first.','lw');return}
+  if(S.sess<=-num('lL',10)||num('lL',10)<=0){flash('Set your stop loss first.','lw');return}
   BOT.busy=true;$('scr').classList.remove('hid');$('sb').textContent='Scanning…';$('sb').disabled=true;$('st').textContent='Scanning';$('bsub').textContent=SW.auto?'Scanning volatility and setups on every market…':'Checking '+S.SEL.name+' and its contracts…';
   paintScan([],false,SW.auto?S.MK.length:1);
   (SW.auto?scanMarkets(function(r,n){paintScan(r,false,n)}):scanOne(S.SEL)).then(function(res){
@@ -925,13 +939,13 @@ function autoStep(m){
   if(perfBad(m,BOT.ci)){if(SW.auto){if(Date.now()-(BOT.pl||0)>20000){BOT.pl=Date.now();log('Your live win rate on '+m.name+' is below break-even after 20+ trades. Looking elsewhere…');rescan()}return}stopBot('your live win rate on '+m.name+' is below break-even after 20+ trades.');return}
   var g=sig(m,BOT.ci,BOT.br),base=num('aS',.5),stake=Math.round(base*Math.pow(Math.max(1,num('aM',1)),BOT.lvl||0)*100)/100,ceil=Math.max(base,S.bal*.02);
   if((BOT.lvl||0)>0&&stake>ceil+1e-9){log('Stake chain cut: '+f(stake)+' is above 2% of your balance. Back to the base stake '+f(base)+'.');BOT.lvl=0;stake=base}
-  if(!g.go){if(Date.now()-(BOT.wl||0)>30000){BOT.wl=Date.now();log('Waiting · '+m.name+': signal '+Math.round(g.e)+' (needs '+minSig()+'+ and uneven digits).')}return}
+  if(!g.go){$('bsub').textContent='Watching '+m.name+' · '+(BOT.ci===0?'Even/Odd':BOT.ci===1?'Rise/Fall':'Over/Under')+' · signal '+Math.round(g.e)+' of '+minSig()+' needed. Waiting for a stronger setup.';if(Date.now()-(BOT.wl||0)>30000){BOT.wl=Date.now();log('Waiting · '+m.name+': signal '+Math.round(g.e)+' (needs '+minSig()+'+ and uneven digits).')}return}
   if(stake>S.bal){stopBot('not enough balance for the next stake.');return}
   if(stake>S.maxStake){stopBot('next stake '+f(stake)+' is above the server limit MAX_STAKE '+S.maxStake+'.');return}
   if(DAY.base>0&&pendRisk()+stake>capLeft()+1e-9){stopBot('next stake would risk more than your daily loss cap.');return}
   if(stake>num('lL',50)+S.sess){stopBot('next stake '+f(stake)+' would break your stop loss.');return}
   var br=BOT.ci===3?(g.br!=null?g.br:BOT.br):BOT.br;
-  BOT.wait=Date.now()+4000;BOT.since++;
+  BOT.wait=Date.now()+4000;BOT.since++;$('bsub').textContent='Trade placed on '+m.name+': '+lbl(BOT.ci,g.s,br).toUpperCase()+' · stake '+f(stake)+' '+S.cur+'. Waiting for the result.';
   log('Scanner · '+m.name+': '+lbl(BOT.ci,g.s,br).toUpperCase()+' (signal '+Math.round(g.e)+')');
   place(m,BOT.ci,g.s,br,stake,1,BOT.ci===1?5:1,'Auto').then(function(r){
     if(r.ok)return;
