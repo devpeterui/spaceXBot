@@ -867,5 +867,21 @@ except Exception as _err:
     print("auto not loaded:", _err)
 
 
+try:
+    import risk
+
+    risk.register(_sys.modules[__name__])
+except Exception as _err:
+    print("risk not loaded:", _err)
+
+
+try:
+    import indicators
+
+    indicators.register(_sys.modules[__name__])
+except Exception as _err:
+    print("indicators not loaded:", _err)
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
