@@ -48,6 +48,12 @@ def real_verdict(wins, n, need_pct, min_n=100):
     return {"state": st, "n": n, "z": round(z, 2), "text": tx}
 
 
+def wilson_low(k, n):
+    """Low estimate of the true frequency (%), so a lucky sample is not trusted."""
+    import edge
+    return round(edge.wilson_lower(k, n) * 100, 1)
+
+
 def last_digit(price, pip):
     """Last digit of a price at the market's decimal places."""
     return int(("%.*f" % (pip, float(price)))[-1])
@@ -105,26 +111,35 @@ def analyze(digits):
         side = "even" if z_even > 0 else "odd"
         recent_ok = (rec_even / len(rec) > 0.5) == (z_even > 0)
         best.append({"kind": "even_odd", "side": side, "z": round(abs(z_even), 2),
-                     "need_win": need_win(0.5), "recent_ok": recent_ok})
+                     "need_win": need_win(0.5), "recent_ok": recent_ok,
+                     "low_pct": wilson_low(ev if z_even > 0 else n - ev, n)})
     for b, z in over.items():
         chance += z >= Z_NEED
         if z >= zneed:
             ro = sum(rc[b + 1:]) / len(rec) > (9 - b) / 10
             best.append({"kind": "over_under", "side": "over %d" % b, "z": z,
-                         "need_win": need_win((9 - b) / 10), "recent_ok": ro})
+                         "need_win": need_win((9 - b) / 10), "recent_ok": ro,
+                         "low_pct": wilson_low(sum(counts[b + 1:]), n)})
     for b, z in under.items():
         chance += z >= Z_NEED
         if z >= zneed:
             ro = sum(rc[:b]) / len(rec) > b / 10
             best.append({"kind": "over_under", "side": "under %d" % b, "z": z,
-                         "need_win": need_win(b / 10), "recent_ok": ro})
+                         "need_win": need_win(b / 10), "recent_ok": ro,
+                         "low_pct": wilson_low(sum(counts[:b]), n)})
     best.sort(key=lambda x: x["z"], reverse=True)
-    usable = [b for b in best if b["recent_ok"]]
+    for b in best:
+        b["beats_house"] = bool(b["need_win"] and b["low_pct"] > b["need_win"])
+    usable = [b for b in best if b["recent_ok"] and b["beats_house"]]
 
     uneven = chi2 >= CHI2_CRIT_9
     if usable:
         verdict, act = "BIAS", "Lead: %s (z %.1f) and still showing in the last %d ticks" % (
             usable[0]["side"], usable[0]["z"], RECENT)
+    elif any(b["recent_ok"] for b in best):
+        top = [b for b in best if b["recent_ok"]][0]
+        verdict, act = "BELOW_HOUSE", "%s leads (z %.1f) but even its low estimate %.1f%% is under break-even %.1f%%: skip" % (
+            top["side"], top["z"], top["low_pct"], top["need_win"])
     elif best:
         verdict, act = "FADING", "A lead exists (%s, z %.1f) but is not in the last %d ticks: wait" % (
             best[0]["side"], best[0]["z"], RECENT)
@@ -202,7 +217,13 @@ def register(core):
                 rows.append({"symbol": s, "ok": False, "verdict": "INVALID", "action": "WAIT: invalid market name"})
                 continue
             try:
-                prices, pip = fetch_ticks(s, count)
+                try:
+                    prices, pip = fetch_ticks(s, count)
+                except core.BrokerError as first:
+                    if first.http not in (503, 504):
+                        raise
+                    time.sleep(0.6)   # feed dropped: one quiet retry
+                    prices, pip = fetch_ticks(s, count)
                 rows.append(dict(analyze(digits_from_prices(prices, pip)), symbol=s))
             except core.BrokerError as e:
                 rows.append({"symbol": s, "ok": False, "verdict": "ERROR",

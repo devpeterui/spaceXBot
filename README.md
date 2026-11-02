@@ -11,6 +11,9 @@ One page, one market, zero cost. Digit and rise/fall trading on your Deriv **dem
 ## Files
 - `app.py`: server (login, account, safety rules, demo/real account switching).
 - `bulk.py`: bulk orders, tick relay, real win/loss results (new).
+- `digitstats.py`: server-side digit statistics (`/digits/stats`, `/digits/verdict`). A lead only counts as BIAS if it passes the adjusted z test, still shows in the last 40 ticks, and its low estimate (Wilson 95%) beats break-even. Small leads show as BELOW_HOUSE.
+- `edge.py`: real payout maths and trade report (`/edge/report`): true break-even from Deriv's quote, Wilson low bound, expectancy, max drawdown, loss streak, verdict.
+- `risk.py`, `indicators.py`: central risk gate and candle indicators (EMA, RSI, MACD).
 - `derivs.py`, `extras.py`, `auto.py`: contract builder, charts, server-side auto mode (still available, not used by the page).
 - `public/index.html`: the SpaceX Bulk Trader page. It is split into three tabs: Trade (market, digits/candles, scanner, limits), Auto bot (bot settings, limits) and Results. On desktop Results stays in the side column; on phones it is its own tab. `sw.js`, manifest and icons make it installable on a phone.
 - Daily loss cap (Limits card): default 5% of the balance you start the day with. No order is sent if it could push the day's loss past the cap, and once it is reached trading stays locked until tomorrow on that device. Resetting the session or raising the percentage does not unlock it.
@@ -21,6 +24,9 @@ One page, one market, zero cost. Digit and rise/fall trading on your Deriv **dem
 - `render.yaml`, `render.env.example`: Render settings and every variable.
 
 ## What's new in this version
+- **Payout floor.** Every buy is checked against Deriv's real quote. If a win would pay less than `MIN_PAYOUT_PCT` (default 80) of the stake, the trade is refused. The log shows the true break-even per order.
+- **Edge-aware digit check.** BIAS now has to beat break-even, not just fair odds.
+- **Quiet retry** on a dropped tick feed, and a 5 minute cache of the market list.
 - **Demo and real accounts.** `ALLOW_LIVE` now defaults to `true`. A fresh login starts on your demo account; if your token reaches more than one account, a small selector appears in the header to switch between demo and real. The DEMO / LIVE badge always shows which one is active. Starting the bot on a real account asks for confirmation first. Daily loss baselines are kept per account. Set `ALLOW_LIVE=false` any time to block real accounts again.
 - **Rise/Fall trend filter.** The bot only trades when the tick-direction signal agrees with price vs EMA(21), RSI(14) and the MACD(12,26,9) histogram.
 - **Digit recency check.** A digit skew over the last 200 ticks must still be present in the last 30 to 40 ticks, otherwise the bot waits.

@@ -18,6 +18,7 @@ import threading
 from flask import jsonify, request
 
 import derivs
+import edge
 
 PUBLIC_WS = "wss://api.derivws.com/trading/v1/options/ws/public"
 HARD_MAX_BULK = 20
@@ -295,6 +296,9 @@ def register(core):
                     ask = float(prop.get("ask_price", stake))
                     if ask > stake * 1.05 + 0.01:
                         raise BrokerError(f"Deriv price {ask} is above your stake {stake}. Not bought.", 403)
+                    ok, why = edge.payout_ok(ask, prop.get("payout"), edge.min_profit_floor())
+                    if not ok:
+                        raise BrokerError(why, 403)
                     buy = broker._ws_send(ws, {"buy": prop["id"], "price": ask}, 101 + 2 * i).get("buy") or {}
                     placed.append({
                         "id": buy.get("contract_id", ""),
@@ -302,6 +306,7 @@ def register(core):
                         "payout": buy.get("payout", prop.get("payout")),
                         "longcode": prop.get("longcode", ""),
                         "start": buy.get("start_time"),
+                        "be": edge.breakeven_pct(ask, buy.get("payout", prop.get("payout"))),
                     })
                 except BrokerError as e:
                     stopped = e.message

@@ -162,7 +162,21 @@ def check_config(cfg):
     return None
 
 
+_MK_CACHE = {}   # types -> (time, list); the market list rarely changes
+
+
 def _ws_markets(core, types):
+    import time as _t
+    key = json.dumps(types, sort_keys=True, default=str)
+    hit = _MK_CACHE.get(key)
+    if hit and _t.time() - hit[0] < 300:
+        return hit[1]
+    rows = _ws_markets_live(core, types)
+    _MK_CACHE[key] = (_t.time(), rows)
+    return rows
+
+
+def _ws_markets_live(core, types):
     import websocket
     try:
         ws = websocket.create_connection(PUBLIC_WS, timeout=15)

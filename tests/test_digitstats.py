@@ -32,6 +32,15 @@ class T(unittest.TestCase):
         self.assertIn(r["verdict"], ("FADING", "NONE"))
         self.assertNotEqual(r["verdict"], "BIAS")
 
+    def test_small_lead_below_house_is_skipped(self):
+        # ~55% even: significant against 50%, but its low estimate (52.2%) is under break-even (52.6%)
+        rnd = random.Random(5)
+        d = [rnd.choice([0, 2, 4, 6, 8]) if rnd.random() < .10 else rnd.randrange(10) for _ in range(1000)]
+        r = ds.analyze(d)
+        self.assertEqual(r["verdict"], "BELOW_HOUSE")
+        self.assertFalse(r["leads"][0]["beats_house"])
+        self.assertIn("low_pct", r["leads"][0])
+
     def test_zscore(self):
         self.assertAlmostEqual(ds.zscore(550, 1000, .5), 3.162, 2)
         self.assertEqual(ds.zscore(1, 0, .5), 0.0)
