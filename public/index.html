@@ -337,9 +337,9 @@ body{overscroll-behavior-y:none}
     </div>
     <div class="asw"><div><b id="aswl">Auto-switch markets</b><small id="asws"></small></div><button type="button" class="swt on" id="asw" role="switch" aria-checked="true" aria-labelledby="aswl"><i></i></button></div>
     <div class="scr hid" id="scr"></div>
-    <div class="inp"><div><label for="aS">Stake</label><input id="aS" type="number" value="0.5" min="0.35" step="0.05"></div><div><label for="aN">Ticks</label><input id="aN" type="number" value="1" min="1" max="10"></div><div><label for="aM">Martingale</label><input id="aM" type="number" value="1" step="0.1" min="1"></div></div>
-    <div class="inp" style="grid-template-columns:repeat(2,1fr)"><div><label for="aG">Min signal (0-100)</label><input id="aG" type="number" value="75" min="50" max="100"></div><div><label for="aX">Stop after losses in a row</label><input id="aX" type="number" value="3" min="1" max="10"></div></div>
-    <div class="fine">The bot only trades when a market's digits are provably uneven (chi-square test) and the signal clears your minimum, otherwise it waits. It follows a proven bias, never a "due" streak. It stops at your take profit, stop loss, loss streak or max trades. Take profit must be at least your stop loss. No setup is guaranteed: each win pays about 95% of the stake, so a market with no real bias loses slowly. Martingale stays off at x1. Auto-switch measures how far each market's ticks move and whether that just jumped. It moves the bot to the strongest steady setup and pauses on a spike or a frozen feed. Switch it off to keep the bot on the market you picked. It chooses where to trade, it does not improve the odds.</div>
+    <div class="inp" style="grid-template-columns:1fr"><div><label for="aS">Stake</label><input id="aS" type="number" value="0.5" min="0.35" step="0.05"></div></div>
+    <div style="display:none"><input id="aN" type="number" value="1"><input id="aM" type="number" value="1"><input id="aG" type="number" value="75"><input id="aX" type="number" value="3"></div>
+    <div class="fine"><b>You set the stake and the stop loss (Limits card). The bot does the rest:</b> it reads the recent ticks of every market, picks the market and contract, chooses the number of ticks (1 for digits, 5 for rise/fall), keeps the signal bar at 75, stays at a flat stake with no martingale, stops after 3 losses in a row, and sets take profit to twice your stop loss. It remembers its own results per market and skips setups that keep losing. The bot only trades when a market's digits are provably uneven (chi-square test) and the signal is strong enough, otherwise it waits. It follows a proven bias, never a "due" streak. It stops at your take profit, stop loss, loss streak or max trades. Take profit must be at least your stop loss. No setup is guaranteed: each win pays about 95% of the stake, so a market with no real bias loses slowly. Auto-switch measures how far each market's ticks move and whether that just jumped. It moves the bot to the strongest steady setup and pauses on a spike or a frozen feed. Switch it off to keep the bot on the market you picked. It chooses where to trade, it does not improve the odds.</div>
    </div>
    <div class="g" data-pane="bot">
     <div class="ch"><h2>Backtest<small>Replays the scanner's kind of signals on past ticks. No trades, no cost</small></h2></div>
@@ -571,7 +571,9 @@ function trendSeries(P){var n=P.length,e=emaA(P,21),f=emaA(P,12),w=emaA(P,26),ml
   else{g=(g*13+(d>0?d:0))/14;l=(l*13+(d<0?-d:0))/14;R[i]=l===0?100:100-100/(1+g/l)}}
  return{e:e,ml:ml,sg:sg,R:R}}
 /* live win rate per market+contract: skip setups that keep losing */
-function perfBad(m,ci){var n=0,w=0,be=0;S.trades.forEach(function(t){if(t.mn===m.name&&t.ci===ci){n++;if(t.won)w++;be+=t.be}});return n>=20&&w/n*100<be/n-5}
+function perfLoad(){try{return JSON.parse(localStorage.getItem('sx_perf_'+S.acct)||'{}')}catch(e){return{}}}
+function perfAdd(mn,ci,won,be){try{var o=perfLoad(),k=mn+'|'+ci,r=o[k]||[0,0,0];r[0]++;if(won)r[1]++;r[2]+=be;if(r[0]>200){r[0]=Math.round(r[0]/2);r[1]=Math.round(r[1]/2);r[2]/=2}o[k]=r;localStorage.setItem('sx_perf_'+S.acct,JSON.stringify(o))}catch(e){}}
+function perfBad(m,ci){var r=perfLoad()[m.name+'|'+ci];return !!r&&r[0]>=20&&r[1]/r[0]*100<r[2]/r[0]-5}
 function sig(m,ci,br){var D=m.d.slice(-200),n=D.length;
  if(n<60)return{s:'a',e:0,go:false,t:'Collecting ticks…'};
  var X=chi(D),fair=X.x<16.9,r={s:'a',e:0,x:X.x},z,rec=true;
@@ -823,7 +825,7 @@ function settle(p,x){
   var win=x.state==='won',pl=(x.profit!=null&&isFinite(x.profit))?x.profit:(win?p.stake*(mult(p.ci,p.s,p.br)-1):-p.stake),pay=win?(x.payout!=null&&isFinite(x.payout)?x.payout:p.stake+pl):0;
   S.sess+=pl;dayAdd(pl);
   var tr={ci:p.ci,mn:p.mn,label:lbl(p.ci,p.s,p.br),entry:x.entry!=null?x.entry:p.entry,exit:x.exit,dec:p.m.dec,stake:p.stake,pl:pl,payout:pay,won:win,d:x.digit,be:mult(p.ci,p.s,p.br)?100/mult(p.ci,p.s,p.br):0};
-  S.trades.unshift(tr);last=tr;
+  S.trades.unshift(tr);last=tr;perfAdd(tr.mn,tr.ci,tr.won,tr.be);
   if(p.m===S.SEL)mk.push({i:cur.i,p:price,k:'out',won:win,pl:pl});
   log((win?'WIN +':'LOSS ')+f(pl)+' '+S.cur+' · '+p.mn+(x.digit!=null?' · digit '+x.digit:''));
   if(p.src==='Auto'){BOT.streak=win?0:BOT.streak+1;BOT.lvl=win?0:(BOT.lvl||0)+1;BOT.wait=Date.now()+(win?1500:6000)}
@@ -891,6 +893,7 @@ function run(t){BOT.on=true;BOT.streak=0;BOT.lvl=0;BOT.peak=Math.max(0,S.sess);B
  if(t.m.ok)autoStep(t.m)}
 function scanAll(){
   if(BOT.busy||BOT.on)return;
+  if(num('lT',50)<num('lL',50)*2)$('lT').value=Math.round(num('lL',50)*2*100)/100;
   if(num('lT',50)<num('lL',50)){flash('Take profit must be at least your stop loss, so a bad run ends smaller than a good one.','lw');return}
   if(!S.demo&&!confirm('REAL ACCOUNT: the bot will place real-money trades on '+S.acct+'. It can lose money. Your take profit, stop loss and daily loss cap stay on. Start it?'))return;
   if(!SW.auto&&(!S.SEL||!S.SEL.ok)){flash('Pick a market and wait for its ticks first.','lw');return}
@@ -930,7 +933,7 @@ function autoStep(m){
   var br=BOT.ci===3?(g.br!=null?g.br:BOT.br):BOT.br;
   BOT.wait=Date.now()+4000;BOT.since++;
   log('Scanner · '+m.name+': '+lbl(BOT.ci,g.s,br).toUpperCase()+' (signal '+Math.round(g.e)+')');
-  place(m,BOT.ci,g.s,br,stake,1,Math.max(1,Math.min(10,Math.round(num('aN',1)))),'Auto').then(function(r){
+  place(m,BOT.ci,g.s,br,stake,1,BOT.ci===1?5:1,'Auto').then(function(r){
     if(r.ok)return;
     if(r.status===401)return;
     if(r.status===403||r.status===400){stopBot('the server refused the order: '+r.msg);return}
