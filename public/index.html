@@ -914,10 +914,10 @@ function runCheck(){var el=$('rck');if(!el)return;
   function row(ok,t,d){var c=ok===true?'up':ok===false?'dn':'';return '<div class="tx '+(ok===true?'w':ok===false?'l':'')+'" style="grid-template-columns:1fr auto"><div class="t" style="font-size:13px">'+esc(t)+'<small style="display:block;font-weight:500;color:var(--mute);font-size:11px;margin-top:2px">'+esc(d)+'</small></div><div class="p"><b class="'+c+'">'+(ok===true?'Pass':ok===false?'Fail':'Not tested')+'</b></div></div>'}
   var feed=Date.now()-lastTickAt<6000,cap=dayChk(),be=100/mult(0,'a',0),n=S.trades.length,w=0;S.trades.forEach(function(t){if(t.won)w++});
   var wr=n?w/n*100:0,band=n?Math.sqrt(be/100*(1-be/100)/n)*196:0;
-  var c1=feed,c2=!!S.demo,c3=!cap,c4=BTX?(BTX.beat>0):null,c5=n<100?null:(wr>be+band);
+  var pg=S.demo?{ok:true}:proofGate(),c1=feed,c2=!!(S.demo||pg.ok),c3=!cap,c4=BTX?(BTX.beat>0):null,c5=n<100?null:(wr>be+band);
   var h='';
   h+=row(c1,'Price feed',c1?'Live ticks are arriving.':'No fresh ticks. Wait for the Live badge.');
-  h+=row(c2,'Account type',c2?'Demo account. The bot is demo-only.':'Live account. The bot will not run on it.');
+  h+=row(c2,'Account type',S.demo?'Demo account.':c2?'Real account. Your demo results beat break-even, so the bot may start.':pg.t);
   h+=row(c3,'Daily loss cap',c3?(DAY.base>0?f(Math.max(0,capLeft()))+' '+S.cur+' left today.':'Starts after login.'):cap);
   h+=row(c4,'Edge in past ticks',c4===null?'Run the Backtest in the Auto bot tab.':c4?BTX.beat+' of '+BTX.rules+' rules beat break-even. Could be luck: test again later.':'None of '+BTX.rules+' rules beat break-even.');
   h+=row(c5,'This session',c5===null?(n+' of 100 trades needed.'):c5?'Win rate '+wr.toFixed(1)+'% is above break-even '+be.toFixed(1)+'% beyond luck.':'Win rate '+wr.toFixed(1)+'% has not beaten break-even '+be.toFixed(1)+'%.');
