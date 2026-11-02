@@ -710,6 +710,14 @@ function trendSeries(P){var n=P.length,e=emaA(P,21),f=emaA(P,12),w=emaA(P,26),ml
  return{e:e,ml:ml,sg:sg,R:R}}
 /* live win rate per market+contract: skip setups that keep losing */
 function perfLoad(){try{return JSON.parse(localStorage.getItem('sx_perf_'+S.acct)||'{}')}catch(e){return{}}}
+/* proof gate: real-money bot start needs demo results that beat break-even */
+function demoAdd(tr){try{var o=JSON.parse(localStorage.getItem('sx_demo_rec')||'[0,0,0,0]'),q=(tr.be||0)/100;
+  o[0]++;if(tr.won)o[1]++;o[2]+=q;o[3]+=q*(1-q);localStorage.setItem('sx_demo_rec',JSON.stringify(o))}catch(e){}}
+function proofGate(){var o=[0,0,0,0];try{o=JSON.parse(localStorage.getItem('sx_demo_rec')||'[0,0,0,0]')}catch(e){}
+  var n=o[0],w=o[1],z=o[3]>0?(w-o[2])/Math.sqrt(o[3]):0;
+  if(n<100)return{ok:false,t:'Real account locked: only '+n+' of 100 demo trades so far. Run the bot on demo first.'};
+  if(z<BR_Z)return{ok:false,t:'Real account locked: after '+n+' demo trades you won '+w+' (break-even is about '+Math.round(o[2])+'). That is not above break-even (z '+z.toFixed(1)+', needs '+BR_Z+'+).'};
+  return{ok:true,t:''}}
 function perfAdd(mn,ci,won,be){try{var o=perfLoad(),k=mn+'|'+ci,r=o[k]||[0,0,0];r[0]++;if(won)r[1]++;r[2]+=be;if(r[0]>200){r[0]=Math.round(r[0]/2);r[1]=Math.round(r[1]/2);r[2]/=2}o[k]=r;localStorage.setItem('sx_perf_'+S.acct,JSON.stringify(o))}catch(e){}}
 function perfBad(m,ci){var r=perfLoad()[m.name+'|'+ci];return !!r&&r[0]>=20&&r[1]/r[0]*100<r[2]/r[0]-5}
 function sig(m,ci,br){return brGate(m,ci,br,sigRaw(m,ci,br))}
@@ -977,7 +985,7 @@ function settle(p,x){
   var win=x.state==='won',pl=(x.profit!=null&&isFinite(x.profit))?x.profit:(win?p.stake*(mult(p.ci,p.s,p.br)-1):-p.stake),pay=win?(x.payout!=null&&isFinite(x.payout)?x.payout:p.stake+pl):0;
   S.sess+=pl;dayAdd(pl);
   var tr={ci:p.ci,mn:p.mn,label:lbl(p.ci,p.s,p.br),entry:x.entry!=null?x.entry:p.entry,exit:x.exit,dec:p.m.dec,stake:p.stake,pl:pl,payout:pay,won:win,d:x.digit,be:mult(p.ci,p.s,p.br)?100/mult(p.ci,p.s,p.br):0};
-  S.trades.unshift(tr);last=tr;perfAdd(tr.mn,tr.ci,tr.won,tr.be);
+  S.trades.unshift(tr);last=tr;perfAdd(tr.mn,tr.ci,tr.won,tr.be);if(S.demo)demoAdd(tr);
   if(p.m===S.SEL)mk.push({i:cur.i,p:price,k:'out',won:win,pl:pl});
   log((win?'WIN +':'LOSS ')+f(pl)+' '+S.cur+' · '+p.mn+(x.digit!=null?' · digit '+x.digit:''));
   if(p.src==='Auto'){BOT.streak=win?0:BOT.streak+1;BOT.lvl=win?0:(BOT.lvl||0)+1;BOT.wait=Date.now()+(win?1500:6000)}
@@ -1047,6 +1055,7 @@ function scanAll(){
   if(BOT.busy||BOT.on)return;
   if(num('lT',50)<num('lL',50)*2)$('lT').value=Math.round(num('lL',50)*2*100)/100;
   if(num('lT',50)<num('lL',50)){flash('Take profit must be at least your stop loss, so a bad run ends smaller than a good one.','lw');return}
+  if(!MON.on&&!S.demo){var pg=proofGate();if(!pg.ok){flash(pg.t,'lw');return}}
   if(!MON.on&&!S.demo&&!confirm('REAL ACCOUNT: the bot will place real-money trades on '+S.acct+'. It can lose money. Your take profit, stop loss and daily loss cap stay on. Start it?'))return;
   if(!SW.auto&&(!S.SEL||!S.SEL.ok)){flash('Pick a market and wait for its ticks first.','lw');return}
   if(S.sess<=-num('lL',10)||num('lL',10)<=0){flash('Set your stop loss first.','lw');return}
