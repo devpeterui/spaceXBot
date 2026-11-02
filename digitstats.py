@@ -13,11 +13,39 @@ import json
 import math
 import re
 import time
+from statistics import NormalDist
 
 MIN_TICKS = 600
 Z_NEED = 1.64            # one-sided ~95%, same as the page (BR_Z)
+N_TESTS = 19             # even/odd + over 0..8 + under 1..9 are all checked
+MARGIN = 0.05            # approx. house margin: payouts sit ~5% under fair odds
 CHI2_CRIT_9 = 16.92      # chi-square, 9 degrees of freedom, 5% level
 RECENT = 40              # a skew must still show in the last ticks
+
+
+def z_adj(tests=N_TESTS, alpha=0.05):
+    """Bonferroni z: with many sides tested, 1.64 alone flags noise."""
+    return NormalDist().inv_cdf(1 - alpha / max(1, tests))
+
+
+def need_win(p, margin=MARGIN):
+    """Approx. win rate (%) needed to break even when the payout is p-fair minus margin."""
+    return round(p / (1 - margin) * 100, 1) if 0 < p < 1 else None
+
+
+def real_verdict(wins, n, need_pct, min_n=100):
+    """Are REAL results above break-even? Returns state + z. Never says yes too early."""
+    if n < min_n:
+        return {"state": "TOO_FEW", "n": n, "z": 0.0,
+                "text": "Only %d of %d trades: nothing can be concluded yet" % (n, min_n)}
+    z = zscore(wins, n, need_pct / 100.0)
+    if z >= Z_NEED:
+        st, tx = "ABOVE", "Above break-even (z %.1f). Keep testing on demo before real money" % z
+    elif z <= -Z_NEED:
+        st, tx = "BELOW", "Below break-even (z %.1f). Stop: the losses are not bad luck" % z
+    else:
+        st, tx = "UNPROVEN", "Not distinguishable from break-even (z %.1f): no edge shown" % z
+    return {"state": st, "n": n, "z": round(z, 2), "text": tx}
 
 
 def last_digit(price, pip):
@@ -69,20 +97,27 @@ def analyze(digits):
         rc[d] += 1
     rec_even = sum(rc[d] for d in (0, 2, 4, 6, 8))
 
+    zneed = z_adj()
+    chance = 0   # leads at the raw 1.64 level: shows how much is noise
     best = []   # strongest single-side leads
-    if abs(z_even) >= Z_NEED:
+    chance += abs(z_even) >= Z_NEED
+    if abs(z_even) >= zneed:
         side = "even" if z_even > 0 else "odd"
         recent_ok = (rec_even / len(rec) > 0.5) == (z_even > 0)
         best.append({"kind": "even_odd", "side": side, "z": round(abs(z_even), 2),
-                     "recent_ok": recent_ok})
+                     "need_win": need_win(0.5), "recent_ok": recent_ok})
     for b, z in over.items():
-        if z >= Z_NEED:
+        chance += z >= Z_NEED
+        if z >= zneed:
             ro = sum(rc[b + 1:]) / len(rec) > (9 - b) / 10
-            best.append({"kind": "over_under", "side": "over %d" % b, "z": z, "recent_ok": ro})
+            best.append({"kind": "over_under", "side": "over %d" % b, "z": z,
+                         "need_win": need_win((9 - b) / 10), "recent_ok": ro})
     for b, z in under.items():
-        if z >= Z_NEED:
+        chance += z >= Z_NEED
+        if z >= zneed:
             ro = sum(rc[:b]) / len(rec) > b / 10
-            best.append({"kind": "over_under", "side": "under %d" % b, "z": z, "recent_ok": ro})
+            best.append({"kind": "over_under", "side": "under %d" % b, "z": z,
+                         "need_win": need_win(b / 10), "recent_ok": ro})
     best.sort(key=lambda x: x["z"], reverse=True)
     usable = [b for b in best if b["recent_ok"]]
 
@@ -97,9 +132,10 @@ def analyze(digits):
         verdict, act = "NONE", "No bias beyond chance over %d ticks" % n
     return {"ok": True, "n": n, "counts": counts, "pct": pct, "chi2": round(chi2, 2),
             "uneven": uneven, "z_even": round(z_even, 2), "over_z": over, "under_z": under,
-            "leads": best[:5], "verdict": verdict, "action": act,
-            "note": "Random digits show a 'bias' somewhere about once in several tests by chance; "
-                    "a lead is not an edge."}
+            "leads": best[:5], "z_needed": round(zneed, 2), "raw_leads": int(chance), "verdict": verdict, "action": act,
+            "note": "%d of %d sides pass the raw 1.64 test even on random data; only z %.1f+ counts here. "
+                    "A lead is not an edge: payouts sit about 5%% below fair odds." % (
+                        int(chance), N_TESTS, zneed)}
 
 
 # ---------------------------------------------------------------- routes
@@ -172,3 +208,17 @@ def register(core):
                 rows.append({"symbol": s, "ok": False, "verdict": "ERROR",
                              "action": "WAIT: INSUFFICIENT DATA (" + e.message + ")"})
         return jsonify({"status": "success", "time": time.time(), "rows": rows})
+
+    @app.post("/digits/verdict")
+    def digits_verdict():
+        _, broker = core.current_session()
+        if not broker:
+            return core.denied_response()
+        d = request.get_json(silent=True) or {}
+        try:
+            wins, n, need = int(d.get("wins")), int(d.get("n")), float(d.get("need_pct"))
+        except (TypeError, ValueError):
+            return jsonify({"status": "error", "message": "Send wins, n and need_pct as numbers."}), 400
+        if not (0 <= wins <= n and 0 < need < 100):
+            return jsonify({"status": "error", "message": "Numbers out of range."}), 400
+        return jsonify(dict(real_verdict(wins, n, need), status="success"))
