@@ -526,6 +526,23 @@ setInterval(function(){if(!S.token||!S.MK.length||brLearnBusy||document.hidden||
 setInterval(function(){brSave();if($('app').getAttribute('data-m')==='bot')brUI()},5000);
 window.addEventListener('pagehide',brSave);
 /* monitor mode: same decisions as the live bot, but only practice trades are recorded */
+/* auto plan: ticks, bulk size and max trades are chosen by the bot; stake and stop loss stay yours */
+function tickPick(m,ci){if(ci!==1)return 1;var H=m.h.slice(-400),opts=[5,6,7,8],best=5,bs=-1,i,k;
+  if(H.length<120)return 5;
+  opts.forEach(function(t){var hit=0,n=0,u,mv;for(i=21;i+t<H.length;i++){u=0;for(k=i-19;k<=i;k++)if(H[k]>H[k-1])u++;
+    mv=H[i+t]-H[i];if(mv===0)continue;n++;if((mv>0)===(u>=10))hit++}
+    var r=n?hit/n:0;if(r>bs+.005){bs=r;best=t}});return best}
+function bulkPick(e,stake){var n=e>=95?3:e>=85?2:1,room=(num('lL',10)+S.sess)/3,cap=Math.max(stake,S.bal*.02);
+  n=Math.min(n,Math.max(1,S.maxBulk||1));
+  while(n>1&&(stake*n>cap+1e-9||stake*n>room+1e-9))n--;return n}
+function planFor(t){var st=Math.max(.35,num('aS',.5)),lL=num('lL',10),tk=tickPick(t.m,t.ci),mx=Math.max(20,Math.min(200,Math.round(lL/st*3))),
+  tp=Math.round(lL*2*100)/100;BOT.tks=tk;$('lN').value=mx;$('lT').value=tp;
+  return{tk:tk,mx:mx,tp:tp,t:tname(t)+' · '+lbl(t.ci,t.s,t.br).toUpperCase()+' · '+tk+' tick'+(tk>1?'s':'')+' · up to '+Math.min(3,S.maxBulk||1)+' per order · max '+mx+' trades · take profit '+tp}}
+function startArmed(){var t=BOT.armed;BOT.armed=null;if(!t)return;
+  if(Date.now()-(BOT.armedT||0)>180000){log('The plan is older than 3 minutes. Re-scanning first.');scanAll();return}
+  if(!(num('aS',0)>=.35)){flash('Set your stake first (at least 0.35).','lw');BOT.armed=t;return}
+  if(num('lL',0)<=0){flash('Set your stop loss first.','lw');BOT.armed=t;return}
+  var pl=planFor(t);log('Plan · '+pl.t+'.');run(t)}
 function sbLbl(){return MON.on?'Start monitor':'Connect bot'}
 function monWin(pn,p,dec){var d=dig(p,dec),s=pn.s;
   if(pn.ci===0)return s==='a'?d%2===0:d%2===1;
@@ -1066,8 +1083,12 @@ function scanAll(){
     BOT.pick=res[0];paintScan(res,true);
     log('Scan complete · '+(SW.auto?'strongest steady setup: ':'your market: ')+tname(res[0])+' · '+lbl(res[0].ci,res[0].s,res[0].br).toUpperCase()+' ('+Math.round(res[0].e)+')'+volTag(res[0])+'.');
     $('bsub').textContent='Locking on to '+tname(res[0]);
-    setTimeout(function(){BOT.busy=false;run(res[0])},900)})}
-function stopBot(why){MON.pend=null;var was=BOT.on;BOT.on=false;BOT.busy=false;$('sb').textContent=sbLbl();$('sb').classList.remove('stop');$('sb').disabled=false;$('st').textContent='Idle';$('st').classList.remove('on');$('bsub').textContent='Press connect and the bot does the rest';if(was&&why)log('Bot stopped: '+why)}
+    if(MON.on){setTimeout(function(){BOT.busy=false;run(res[0])},900);return}
+    BOT.busy=false;BOT.armed=res[0];BOT.armedT=Date.now();var pl=planFor(res[0]);
+    $('sb').disabled=false;$('sb').textContent='Start · stake '+f(num('aS',.5))+' · stop loss '+f(num('lL',10));$('st').textContent='Ready';
+    $('bsub').textContent='Plan: '+pl.t+'. The stake and stop loss are yours: set them, then press Start.';
+    log('Plan ready · '+pl.t+'. Waiting for your Start.')})}
+function stopBot(why){BOT.armed=null;MON.pend=null;var was=BOT.on;BOT.on=false;BOT.busy=false;$('sb').textContent=sbLbl();$('sb').classList.remove('stop');$('sb').disabled=false;$('st').textContent='Idle';$('st').classList.remove('on');$('bsub').textContent='Press connect and the bot does the rest';if(was&&why)log('Bot stopped: '+why)}
 function rescan(){if(BOT.busy)return;BOT.busy=true;BOT.since=0;log(SW.auto?'Re-scanning volatility and setups…':'Re-checking contracts on '+BOT.m.name+'…');
   (SW.auto?scanMarkets():scanOne(BOT.m)).then(function(res){BOT.busy=false;if(!BOT.on||!res.length)return;var t=res[0],moved=t.m!==BOT.m||t.ci!==BOT.ci||t.br!==BOT.br;
     target(t);if(moved){goto(t.m);log('Re-scan · moving to '+tname(t)+' · '+lbl(t.ci,t.s,t.br).toUpperCase()+'.')}else log('Re-scan · staying on '+tname(t)+'.');paintScan(res,true)})}
@@ -1089,14 +1110,15 @@ function autoStep(m){
   var g=sig(m,BOT.ci,BOT.br),base=num('aS',.5),stake=Math.round(base*Math.pow(Math.max(1,num('aM',1)),BOT.lvl||0)*100)/100,ceil=Math.max(base,S.bal*.02);
   if((BOT.lvl||0)>0&&stake>ceil+1e-9){log('Stake chain cut: '+f(stake)+' is above 2% of your balance. Back to the base stake '+f(base)+'.');BOT.lvl=0;stake=base}
   if(!g.go){$('bsub').textContent='Watching '+m.name+' · '+(BOT.ci===0?'Even/Odd':BOT.ci===1?'Rise/Fall':'Over/Under')+' · signal '+Math.round(g.e)+' of '+minSig()+' needed. Waiting for a stronger setup.';if(Date.now()-(BOT.wl||0)>30000){BOT.wl=Date.now();log('Waiting · '+m.name+': signal '+Math.round(g.e)+' (needs '+minSig()+'+ and uneven digits).'+(g.brain&&!g.brain.ok?' '+g.brain.t:''))}return}
-  if(stake>S.bal){stopBot('not enough balance for the next stake.');return}
+  var nb=bulkPick(g.e,stake),tk=tickPick(m,BOT.ci);BOT.tks=tk;
+  if(stake*nb>S.bal){stopBot('not enough balance for the next stake.');return}
   if(stake>S.maxStake){stopBot('next stake '+f(stake)+' is above the server limit MAX_STAKE '+S.maxStake+'.');return}
-  if(DAY.base>0&&pendRisk()+stake>capLeft()+1e-9){stopBot('next stake would risk more than your daily loss cap.');return}
+  if(DAY.base>0&&pendRisk()+stake*nb>capLeft()+1e-9){stopBot('next stake would risk more than your daily loss cap.');return}
   if(stake>num('lL',50)+S.sess){stopBot('next stake '+f(stake)+' would break your stop loss.');return}
   var br=BOT.ci===3?(g.br!=null?g.br:BOT.br):BOT.br;
   BOT.wait=Date.now()+4000;BOT.since++;$('bsub').textContent='Trade placed on '+m.name+': '+lbl(BOT.ci,g.s,br).toUpperCase()+' · stake '+f(stake)+' '+S.cur+'. Waiting for the result.';
-  log('Scanner · '+m.name+': '+lbl(BOT.ci,g.s,br).toUpperCase()+' (signal '+Math.round(g.e)+')');
-  place(m,BOT.ci,g.s,br,stake,1,BOT.ci===1?5:1,'Auto').then(function(r){
+  log('Scanner · '+m.name+': '+lbl(BOT.ci,g.s,br).toUpperCase()+' (signal '+Math.round(g.e)+') · '+tk+' tick'+(tk>1?'s':'')+' x'+nb);
+  place(m,BOT.ci,g.s,br,stake,nb,tk,'Auto').then(function(r){
     if(r.ok)return;
     if(r.status===401)return;
     if(r.status===403||r.status===400){stopBot('the server refused the order: '+r.msg);return}
@@ -1110,7 +1132,7 @@ $('asw').onclick=function(){
   log(SW.auto?'Auto-switch on · the bot scans volatility and moves markets by itself.':'Manual · the bot stays on '+(BOT.on&&BOT.m?BOT.m.name:'the market you pick')+'.');
   if(BOT.on&&SW.auto)rescan()};
 swPaint();
-$('sb').onclick=function(){if(BOT.on)stopBot('stopped by you.');else scanAll()};
+$('sb').onclick=function(){if(BOT.on)stopBot('stopped by you.');else if(BOT.armed)startArmed();else scanAll()};
 
 /* ------------------------------------------------------------------ market picker */
 function buildPicker(){var G=[],box=$('mpl');S.MK.forEach(function(m){if(G.indexOf(m.g)<0)G.push(m.g)});
